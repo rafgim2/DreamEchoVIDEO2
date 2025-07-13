@@ -2,92 +2,121 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <title>DreamEcho - Artista</title>
+  <title>DreamEcho - Artista Bidireccional</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
-    body, html {margin:0; padding:0; height:100%; font-family:sans-serif; background:#f5f5f5; display:flex; align-items:center; justify-content:center;}
-    .container {width:90%; max-width:800px; background:white; border:3px solid orange; border-radius:1em; box-shadow:0 0 20px rgba(0,0,0,0.1); padding:1em;}
-    h1 {margin-top:0; font-size:2em;}
-    video {width:45%; margin:0.5%; background:black; border-radius:0.5em;}
-    #controls {display:flex; justify-content:space-between; margin-top:1em;}
-    button, select {font-size:1em; padding:0.5em; margin:0.2em;}
-    #chatLog {height:100px; overflow:auto; border:1px solid #ccc; padding:0.5em; margin-top:1em; background:#fafafa;}
-    /* PTT button style */
-    #ptt {background:red; color:white;}
+    body { font-family: sans-serif; margin: 0; padding: 1em; background: #f5f5f5; display: flex; flex-direction: column; align-items: center; }
+    .videos { display: flex; gap: 1em; }
+    video { width: 300px; height: 200px; background: black; border-radius: 8px; }
+    #controls { margin-top: 1em; }
+    button { padding: 0.5em 1em; margin-right: 0.5em; font-size: 1em; }
+    #pushToTalk { background: #4CAF50; color: white; }
+    #pushToTalk.active { background: #f44336; }
   </style>
 </head>
 <body>
-  <div class="container">
-    <h1>DreamEcho - Artista (Bidireccional)</h1>
-    <div id="videos">
+  <h1>DreamEcho - Artista</h1>
+  <div class="videos">
+    <div>
+      <p>Mi cámara</p>
       <video id="localVideo" autoplay muted playsinline></video>
+    </div>
+    <div>
+      <p>Cámara del oyente</p>
       <video id="remoteVideo" autoplay playsinline></video>
     </div>
-    <div id="controls">
-      <button id="ptt">🔴 Hablar</button>
-      <div>
-        <label for="midiSelect">MIDI Out:</label>
-        <select id="midiSelect"></select>
-      </div>
-      <button id="sendChatBtn">🗨️ Enviar Chat</button>
-      <input id="chatInput" placeholder="Mensaje..." />
-    </div>
-    <div id="chatLog"></div>
+  </div>
+  <div id="controls">
+    <button id="pushToTalk">Pulsar para hablar</button>
+    <button id="midiBtn">Transmitir MIDI</button>
   </div>
 
   <script>
     const localVideo = document.getElementById('localVideo');
     const remoteVideo = document.getElementById('remoteVideo');
-    const ptt = document.getElementById('ptt');
-    const midiSelect = document.getElementById('midiSelect');
-    const chatLog = document.getElementById('chatLog');
-    const chatInput = document.getElementById('chatInput');
-    const sendChatBtn = document.getElementById('sendChatBtn');
+    const pushToTalk = document.getElementById('pushToTalk');
+    const midiBtn = document.getElementById('midiBtn');
 
-    const ws = new WebSocket('wss://dreamecho.onrender.com');
-    const pc = new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'}]});
-    let midiChannel, isTalking=false, output=null;
-    const username = prompt('Tu nombre:','Artista')||'Artista';
+    let localStream, audioTrack;
+    let pc = new RTCPeerConnection({ iceServers:[{ urls:'stun:stun.l.google.com:19302' }] });
+    let ws = new WebSocket('wss://dreamecho.onrender.com');
+    let midiChannel;
+    let midiAccess, midiOut;
+    let sendingMidi = false;
 
-    // STREAM local (audio/video)
-    async function setupMedia(){
-      const stream = await navigator.mediaDevices.getUserMedia({video:true,audio:true});
-      stream.getTracks().forEach(t=>pc.addTrack(t,stream));
-      localVideo.srcObject=stream;
-      // control PTT
-      ptt.addEventListener('mousedown',()=>{if(!isMidiSending){setMic(true);} });
-      ptt.addEventListener('mouseup',()=>{setMic(false);} );
-      function setMic(on){isTalking=on; stream.getAudioTracks()[0].enabled=on; ptt.textContent=on?'🟢 Hablando':'🔴 Hablar';}
-      // start muted
-      setMic(false);
+    async function init() {
+      // Captura cámara + micrófono
+      localStream = await navigator.mediaDevices.getUserMedia({ video:true, audio:true });
+      audioTrack = localStream.getAudioTracks()[0];
+      localVideo.srcObject = localStream;
+      // Añade pistas
+      localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+      // DataChannel para MIDI
+      midiChannel = pc.createDataChannel('midi');
+      midiChannel.onopen = () => midiBtn.disabled = false;
+      midiChannel.onmessage = e => {/* no usarse */};
+      // WebRTC señalización
+      pc.onicecandidate = e => { if(e.candidate) ws.send(JSON.stringify({ type:'signal', candidate:e.candidate })); };
+      pc.ontrack = e => { remoteVideo.srcObject = e.streams[0]; };
+      pc.ondatachannel = e => { if(e.channel.label==='midi') { /* ignore */ } };
+      ws.onopen = createOffer;
+      ws.onmessage = async msg => {
+        let m = JSON.parse(msg.data);
+        if(m.type==='signal') {
+          if(m.offer) {
+            await pc.setRemoteDescription(new RTCSessionDescription(m.offer));
+            const ans = await pc.createAnswer();
+            await pc.setLocalDescription(ans);
+            ws.send(JSON.stringify({ type:'signal', answer:pc.localDescription }));
+          } else if(m.answer) {
+            await pc.setRemoteDescription(new RTCSessionDescription(m.answer));
+          } else if(m.candidate) {
+            await pc.addIceCandidate(new RTCIceCandidate(m.candidate));
+          }
+        }
+      };
+      // MIDI local
+      midiAccess = await navigator.requestMIDIAccess();
+      midiAccess.outputs.forEach(o=> midiOut=o);
+      navigator.requestMIDIAccess().then(ma=>{
+        let inputs = ma.inputs;
+        inputs.forEach(input=>{
+          input.onmidimessage = evt => sendMIDI(evt);
+        });
+      });
+      // Botones
+      pushToTalk.addEventListener('mousedown', ()=> {
+        if(!sendingMidi) { audioTrack.enabled = true; pushToTalk.classList.add('active'); }
+      });
+      pushToTalk.addEventListener('mouseup', ()=> {
+        audioTrack.enabled = false; pushToTalk.classList.remove('active');
+      });
+      midiBtn.addEventListener('click', ()=> {
+        sendingMidi = !sendingMidi;
+        midiBtn.textContent = sendingMidi? 'MIDI ON':'MIDI OFF';
+        pushToTalk.disabled = sendingMidi;
+      });
+      // Call disabled until offer answered
+      audioTrack.enabled = false;
     }
 
-    // SIGNAL via WS
-    pc.onicecandidate = e=>{ if(e.candidate) ws.send(JSON.stringify({type:'signal',candidate:e.candidate})); };
-    pc.ontrack = e=>{ remoteVideo.srcObject = e.streams[0]; };
-    pc.ondatachannel = e=>{ if(e.channel.label==='midi'){ midiChannel=e.channel; midiChannel.onmessage=onMidi; } };
+    async function createOffer() {
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      ws.send(JSON.stringify({ type:'signal', offer:pc.localDescription }));
+    }
 
-    ws.onopen = ()=>{ setupMedia().then(()=>offer()); setupMIDI()); };
-    ws.onmessage = async ev=>{
-      const msg = JSON.parse(ev.data);
-      if(msg.type==='signal'){
-        if(msg.offer){ await pc.setRemoteDescription(msg.offer); const ans=await pc.createAnswer(); await pc.setLocalDescription(ans); ws.send(JSON.stringify({type:'signal',answer:pc.localDescription})); }
-        else if(msg.answer) await pc.setRemoteDescription(msg.answer);
-        else if(msg.candidate) await pc.addIceCandidate(msg.candidate);
-      } else if(msg.type==='chat'){ appendChat(msg.user,msg.text); }
-    };
+    function sendMIDI(evt) {
+      if(sendingMidi && midiChannel.readyState==='open') {
+        pushToTalk.disabled = true;
+        midiChannel.send(JSON.stringify({ data:Array.from(evt.data) }));
+        // reenviar local
+        if(midiOut) midiOut.send(evt.data);
+        setTimeout(()=>{ if(!sendingMidi) pushToTalk.disabled = false; }, 100);
+      }
+    }
 
-    async function offer(){ const offer=await pc.createOffer(); await pc.setLocalDescription(offer); ws.send(JSON.stringify({type:'signal',offer:pc.localDescription})); }
-
-    // CHAT
-    function appendChat(u,t){ const d=document.createElement('div'); d.textContent=`${u}: ${t}`; chatLog.appendChild(d); }
-    sendChatBtn.onclick=()=>{ const t=chatInput.value; if(t){ ws.send(JSON.stringify({type:'chat',user:username,text:t})); appendChat(username,t); chatInput.value=''; }};
-
-    // MIDI CHANNEL
-    function setupMIDI(){ navigator.requestMIDIAccess().then(ma=>{ [...ma.outputs.values()].forEach(o=>{ const opt=document.createElement('option'); opt.value=o.id; opt.text=o.name; midiSelect.add(opt); }); midiSelect.onchange=()=>output=ma.outputs.get(midiSelect.value);
-      const inputs=ma.inputs; inputs.forEach(inp=>{ inp.onmidimessage=e=>{ if(!isTalking){ midiChannel.send(JSON.stringify({data:Array.from(e.data)})); }}; }); }); }
-    function onMidi(ev){ const msg=JSON.parse(ev.data); if(!isTalking && output){ output.send(new Uint8Array(msg.data)); }}
-
+    init();
   </script>
 </body>
 </html>
