@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <title>DreamEcho - Artista (Vídeo + MIDI)</title>
+  <title>DreamEcho - Artista</title>
   <style>
     html, body {
       height: 100%;
@@ -22,13 +22,19 @@
       padding: 2em;
       background: white;
       border-radius: 1em;
-      /* Agregado: borde naranja con esquinas redondeadas */
       border: 3px solid orange;
       box-shadow: 0 0 20px rgba(0, 0, 0, 0.1);
     }
     h1 {
       font-size: 3em;
       margin-bottom: 0.2em;
+    }
+    video {
+      width: 100%;
+      max-height: 300px;
+      border-radius: 0.5em;
+      margin-bottom: 1em;
+      background: black;
     }
     .byline {
       margin-bottom: 0.8em;
@@ -46,7 +52,7 @@
       margin: 0.5em 0;
     }
     #chatLog {
-      height: 200px;
+      height: 150px;
       overflow-y: auto;
       border: 1px solid #ccc;
       padding: 0.5em;
@@ -65,36 +71,22 @@
       cursor: pointer;
       margin-left: 0.5em;
     }
-    #midiSelect {
-      margin: 1em 0;
-      padding: 0.5em;
-      font-size: 1em;
-    }
-    #midiLabel {
-      font-size: 1em;
-      margin-right: 0.5em;
-    }
-    .msg-artista {
-      color: blue;
-    }
-    /* Nuevo estilo para el vídeo */
-    video {
-      width: 320px;
-      height: 240px;
-      background-color: #000;
-      margin-bottom: 1em;
-    }
+    #midiSelect { margin: 1em 0; padding: 0.5em; font-size: 1em; }
+    #midiLabel { font-size: 1em; margin-right: 0.5em; }
+    .msg-artista { color: blue; }
   </style>
 </head>
 <body>
-  <!-- Vista previa local de vídeo -->
-  <video id="localVideo" autoplay muted playsinline></video>
-
   <div class="container">
-    <h1>DreamEcho - Artista (Vídeo + MIDI)</h1>
+    <h1>DreamEcho - Artista</h1>
     <p class="byline">
       <a href="https://www.youtube.com/@rafgim" target="_blank" rel="noopener">© By Rafael Gimeno</a>
     </p>
+    <!-- Vídeo local -->
+    <video id="localVideo" autoplay muted playsinline></video>
+    <!-- Vídeo remoto (si se recibe de un SFU o eco) -->
+    <video id="remoteVideo" autoplay playsinline style="display:none;"></video>
+
     <p id="estado">Conectando...</p>
     <p id="oyentes">Oyentes conectados: --</p>
 
@@ -105,176 +97,152 @@
 
     <div id="chatControles">
       <div id="chatLog"></div>
-      <input id="chatInput" placeholder="Escribe tu mensaje…">
+      <input id="chatInput" placeholder="Escribe tu mensaje…" />
       <button id="sendChatBtn">🗨️ Enviar</button>
     </div>
   </div>
 
   <script>
-    // Elementos del DOM
-    const estadoEl       = document.getElementById('estado');
-    const oyentesEl      = document.getElementById('oyentes');
-    const chatLog        = document.getElementById('chatLog');
-    const chatInput      = document.getElementById('chatInput');
-    const sendChatBtn    = document.getElementById('sendChatBtn');
-    const midiControles  = document.getElementById('midiControles');
-    const midiSelect     = document.getElementById('midiSelect');
+    const estadoEl    = document.getElementById("estado");
+    const oyentesEl   = document.getElementById("oyentes");
+    const chatLog     = document.getElementById("chatLog");
+    const chatInput   = document.getElementById("chatInput");
+    const sendChatBtn = document.getElementById("sendChatBtn");
+    const midiControles = document.getElementById("midiControles");
+    const midiSelect    = document.getElementById("midiSelect");
 
-    // Conexión WebSocket (señalización, estadísticas y chat)
-    const ws = new WebSocket('wss://dreamecho.onrender.com');
+    const localVideo  = document.getElementById("localVideo");
+    const remoteVideo = document.getElementById("remoteVideo");
 
-    // Configuración WebRTC
+    // Conexión WebSocket para señalización y chat
+    const ws = new WebSocket("wss://dreamecho.onrender.com");
+
+    // PeerConnection para WebRTC
     const pc = new RTCPeerConnection({
       iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
     });
     let midiChannel;
-    let localStream;
+    let startTime = null;
 
-    // Captura de la cámara
-    async function startVideo() {
-      try {
-        localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-        document.getElementById('localVideo').srcObject = localStream;
-        localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
-      } catch (e) {
-        console.error('Error accediendo a la cámara:', e);
-        estadoEl.innerText = 'No se pudo acceder a la cámara.';
-      }
+    // Enviar mensajes de señalización
+    function sendSignal(data) {
+      ws.send(JSON.stringify({ type: 'signal', ...data }));
     }
-    startVideo();
-
-    // Canal de datos para MIDI
-    midiChannel = pc.createDataChannel('midiChannel');
-    midiChannel.onopen = () => console.log('MIDI DataChannel abierto');
-
-    pc.ondatachannel = event => {
-      if (event.channel.label === 'midiChannel') {
-        midiChannel = event.channel;
-        midiChannel.onopen = () => console.log('MIDI DataChannel (receptor) abierto');
-      }
-    };
 
     // ICE candidates
     pc.onicecandidate = ({ candidate }) => {
-      if (candidate) {
-        ws.send(JSON.stringify({ type: 'signal', data: { candidate } }));
+      if (candidate) sendSignal({ candidate });
+    };
+
+    // Recepción de pista remota
+    pc.ontrack = ev => {
+      remoteVideo.srcObject = ev.streams[0];
+      remoteVideo.style.display = 'block';
+    };
+
+    // Recepción de canal de datos MIDI
+    pc.ondatachannel = e => {
+      if (e.channel.label === 'midi') {
+        midiChannel = e.channel;
+        setupMidiReception();
       }
     };
 
-    // Oferta/negociación
-    pc.onnegotiationneeded = async () => {
+    // Iniciar la captura y oferta
+    async function startWebRTC() {
       try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        stream.getTracks().forEach(track => pc.addTrack(track, stream));
+        localVideo.srcObject = stream;
+
+        // Crear canal MIDI
+        midiChannel = pc.createDataChannel('midi');
+        setupMidiChannel();
+
+        // Crear oferta
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
-        ws.send(JSON.stringify({ type: 'signal', data: { sdp: pc.localDescription } }));
-      } catch (e) {
-        console.error('Error en negociación:', e);
+        sendSignal({ offer });
+
+      } catch (err) {
+        console.error('Error en WebRTC:', err);
+        estadoEl.innerText = 'Error al iniciar WebRTC.';
+      }
+    }
+
+    // Gestión de canal de datos MIDI (emisor)
+    function setupMidiChannel() {
+      midiChannel.onopen = () => {
+        estadoEl.innerText = estadoEl.innerText + ' | Canal MIDI listo';
+      };
+    }
+
+    // Gestión de recepción de MIDI (no usado en artista)
+    function setupMidiReception() {
+      midiChannel.onmessage = ({ data }) => {
+        // No procesamos MIDI en el artista
+      };
+    }
+
+    // Manejador de mensajes WS
+    ws.onopen = () => {
+      estadoEl.innerText = 'Conectado. Iniciando WebRTC...';
+      startWebRTC();
+    };
+
+    ws.onmessage = async event => {
+      const text = await event.data.text();
+      const msg  = JSON.parse(text);
+
+      switch (msg.type) {
+        case 'signal':
+          if (msg.offer) {
+            await pc.setRemoteDescription(msg.offer);
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            sendSignal({ answer });
+          }
+          if (msg.answer) {
+            await pc.setRemoteDescription(msg.answer);
+          }
+          if (msg.candidate) {
+            await pc.addIceCandidate(msg.candidate);
+          }
+          break;
+        case 'stats':
+          oyentesEl.innerText = `Oyentes conectados: ${msg.clients}`;
+          break;
+        case 'chat':
+          appendChat(msg.user, msg.text);
+          break;
+        // El artista no recibe eventos 'midi' por WS, van por DataChannel
       }
     };
 
-    // Username para el chat
-    const username = prompt('¿Cómo quieres que te vean en el chat?', 'Artista') || 'Artista';
+    ws.onclose = () => { estadoEl.innerText = 'Conexión cerrada.'; };
+    ws.onerror = e => { estadoEl.innerText = 'Error en la conexión.'; console.error(e); };
 
-    // Función para añadir mensajes al log de chat
+    const username = prompt("¿Cómo quieres que te vean en el chat?", "Artista") || "Artista";
     function appendChat(user, text) {
-      const msg = document.createElement('div');
-      msg.innerHTML = `<strong>${user}:</strong> ${text}`;
+      const msg = document.createElement("div");
+      const time = new Date().toLocaleTimeString();
+      if (user === username) msg.classList.add('msg-artista');
+      msg.innerHTML = `<small>[${time}]</small> <strong>${user}:</strong> ${text}`;
       chatLog.appendChild(msg);
       chatLog.scrollTop = chatLog.scrollHeight;
     }
 
-    // Handlers de WebSocket
-    ws.onopen = () => {
-      estadoEl.innerText = 'Conectado. A la espera de selección MIDI.';
-    };
-    ws.onclose = () => {
-      estadoEl.innerText = 'Conexión cerrada.';
-    };
-    ws.onerror = e => {
-      estadoEl.innerText = 'Error en la conexión.';
-      console.error(e);
-    };
-    ws.onmessage = async event => {
-      const text = typeof event.data === 'string' ? event.data : await event.data.text();
-      const msg = JSON.parse(text);
-
-      // Señalización WebRTC
-      if (msg.type === 'signal') {
-        const { data } = msg;
-        if (data.sdp) {
-          await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
-          if (data.sdp.type === 'offer') {
-            const answer = await pc.createAnswer();
-            await pc.setLocalDescription(answer);
-            ws.send(JSON.stringify({ type: 'signal', data: { sdp: pc.localDescription } }));
-          }
-        } else if (data.candidate) {
-          try {
-            await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
-          } catch (e) {
-            console.error('Error ICE:', e);
-          }
-        }
-        return;
-      }
-
-      // Estadísticas de oyentes
-      if (msg.type === 'stats') {
-        oyentesEl.innerText = `Oyentes conectados: ${msg.clients}`;
-        return;
-      }
-      // Mensajes de chat
-      if (msg.type === 'chat') {
-        appendChat(msg.user, msg.text);
-        return;
-      }
-    };
-
-    // Envío de chat
-    sendChatBtn.addEventListener('click', () => {
+    function sendChat() {
       const text = chatInput.value.trim();
-      if (!text) return;
-      ws.send(JSON.stringify({ type: 'chat', user: username, text }));
+      if (!text || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify({ type: "chat", user: username, text }));
       chatInput.value = '';
-    });
-    chatInput.addEventListener('keydown', e => {
-      if (e.key === 'Enter') sendChatBtn.click();
-    });
-
-    // Manejo de MIDI
-    let activeMIDIInput = null;
-    let startTime = null;
-
-    function midiMessageHandler(event) {
-      const now = performance.now();
-      if (startTime === null) startTime = now;
-      const relativeTime = now - startTime;
-      const payload = JSON.stringify({
-        type: 'midi',
-        data: Array.from(event.data),
-        time: relativeTime
-      });
-      if (midiChannel && midiChannel.readyState === 'open') {
-        midiChannel.send(payload);
-      } else if (ws.readyState === WebSocket.OPEN) {
-        ws.send(payload);
-      }
     }
 
-    function seleccionarMIDI(deviceId, midiAccess) {
-      if (activeMIDIInput) {
-        activeMIDIInput.onmidimessage = null;
-      }
-      const nuevoInput = midiAccess.inputs.get(deviceId);
-      if (nuevoInput) {
-        nuevoInput.onmidimessage = midiMessageHandler;
-        activeMIDIInput = nuevoInput;
-        estadoEl.innerText = `Transmitiendo desde: ${nuevoInput.name}`;
-      } else {
-        estadoEl.innerText = 'Dispositivo MIDI no encontrado.';
-      }
-    }
+    sendChatBtn.addEventListener('click', sendChat);
+    chatInput.addEventListener('keydown', e => { if (e.key === 'Enter') sendChat(); });
 
+    // MIDI Access
     navigator.requestMIDIAccess().then(midiAccess => {
       const inputs = midiAccess.inputs;
       if (inputs.size === 0) {
@@ -282,21 +250,35 @@
         return;
       }
       midiControles.style.display = 'block';
-      inputs.forEach((input, key) => {
-        const option = document.createElement('option');
-        option.value = key;
-        option.text = input.name;
-        midiSelect.appendChild(option);
+      inputs.forEach((input, id) => {
+        const opt = document.createElement('option');
+        opt.value = id; opt.text = input.name;
+        midiSelect.appendChild(opt);
       });
-      midiSelect.addEventListener('change', () => {
-        seleccionarMIDI(midiSelect.value, midiAccess);
-      });
-      // Selección inicial
-      seleccionarMIDI(midiSelect.value, midiAccess);
-      estadoEl.innerText = 'Selecciona un dispositivo MIDI para empezar a transmitir.';
-    }).catch(() => {
-      estadoEl.innerText = 'No se pudo acceder al MIDI.';
-    });
+      midiSelect.addEventListener('change', () => selectMIDI(midiSelect.value, midiAccess));
+      selectMIDI(midiSelect.value, midiAccess);
+      estadoEl.innerText = 'Selecciona un dispositivo MIDI para empezar.';
+    }).catch(() => { estadoEl.innerText = 'No se pudo acceder al MIDI.'; });
+
+    let activeInput = null;
+    function selectMIDI(id, midiAccess) {
+      if (activeInput) activeInput.onmidimessage = null;
+      const inp = midiAccess.inputs.get(id);
+      if (!inp) { estadoEl.innerText = 'MIDI no encontrado.'; return; }
+      inp.onmidimessage = handleMIDI;
+      activeInput = inp;
+      estadoEl.innerText = `Transmitiendo desde: ${inp.name}`;
+      startTime = null;
+    }
+
+    function handleMIDI(evt) {
+      const now = performance.now();
+      if (startTime === null) startTime = now;
+      const rel = now - startTime;
+      if (midiChannel && midiChannel.readyState === 'open') {
+        midiChannel.send(JSON.stringify({ data: Array.from(evt.data), time: rel }));
+      }
+    }
   </script>
 </body>
 </html>
