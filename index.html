@@ -77,163 +77,134 @@
     const talkBtn = document.getElementById('talkBtn');
     const talkStatus = document.getElementById('talkStatus');
 
-    // WebSocket para señalización y chat
-    const ws = new WebSocket('wss://dreamecho.onrender.com');
-    // PeerConnection para WebRTC
-    const pc = new RTCPeerConnection({ iceServers:[{ urls:'stun:stun.l.google.com:19302' }] });
-
+    // Estado global
+    let ws = null;
+    let pc = null;
     let midiChannel = null;
     let activeMIDIInput = null;
     let startTime = null;
     let prevClients = 0;
+    let localStream = null;
+    let remoteStream = null;
     const username = prompt('¿Cómo quieres que te vean en el chat?', 'Artista') || 'Artista';
 
-    // Walkie-talkie control
+    // Walkie-talkie
     let localAudioTrack = null;
-    let remoteAudioTrack = null;
     let isTalking = false;
     let otherIsTalking = false;
-    let midiDataChannelReady = false;
 
-    // Stream local persistente (para no pedir permisos ni romper la cámara)
-    let localStream = null;
-
-    // Enviar señalización por WS
-    function sendSignal(data) {
-      ws.send(JSON.stringify({ type: 'signal', ...data }));
+    // --- Funciones de inicio y conexión ---
+    function initWebSocket() {
+      ws = new WebSocket('wss://dreamecho.onrender.com');
+      ws.onopen = () => {
+        estadoEl.innerText = 'Conectado. Iniciando WebRTC...';
+        startWebRTC();
+      };
+      ws.onmessage = async ({ data }) => {
+        const raw = typeof data === 'string' ? data : await data.text();
+        const msg = JSON.parse(raw);
+        if (msg.type === 'stats') {
+          oyentesEl.innerText = `Oyentes conectados: ${msg.clients}`;
+          if (prevClients > 0 && msg.clients > prevClients) {
+            startWebRTC(); // renegocia para nuevos oyentes
+          }
+          prevClients = msg.clients;
+          return;
+        }
+        if (msg.type === 'chat') {
+          appendChat(msg.user, msg.text);
+          return;
+        }
+        if (msg.type === 'signal') {
+          if (msg.offer) {
+            await pc.setRemoteDescription(new RTCSessionDescription(msg.offer));
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            sendSignal({ answer: pc.localDescription });
+          }
+          if (msg.answer) {
+            await pc.setRemoteDescription(new RTCSessionDescription(msg.answer));
+          }
+          if (msg.candidate) {
+            await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
+          }
+        }
+      };
+      ws.onerror = () => { estadoEl.innerText = 'Error en la conexión.'; };
+      ws.onclose = () => { estadoEl.innerText = 'Conexión cerrada.'; };
     }
 
-    // Manejo de mensajes WS
-    ws.onopen = () => {
-      estadoEl.innerText = 'Conectado. Iniciando WebRTC...';
-      startWebRTC();
-    };
-    ws.onmessage = async ({ data }) => {
-      const raw = typeof data === 'string' ? data : await data.text();
-      const msg = JSON.parse(raw);
-
-      if (msg.type === 'stats') {
-        const clients = msg.clients;
-        oyentesEl.innerText = `Oyentes conectados: ${clients}`;
-        // Si hay más oyentes (no el primer mensaje), renegociamos
-        if (prevClients > 0 && clients > prevClients) {
-          startWebRTC();
-        }
-        prevClients = clients;
-        return;
+    function sendSignal(data) {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'signal', ...data }));
       }
-      if (msg.type === 'chat') {
-        appendChat(msg.user, msg.text);
-        return;
-      }
-      if (msg.type === 'signal') {
-        // Señalización WebRTC
-        if (msg.offer) {
-          await pc.setRemoteDescription(new RTCSessionDescription(msg.offer));
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
-          sendSignal({ answer: pc.localDescription });
-        }
-        if (msg.answer) {
-          await pc.setRemoteDescription(new RTCSessionDescription(msg.answer));
-        }
-        if (msg.candidate) {
-          await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
-        }
-      }
-    };
-    ws.onerror = err => {
-      estadoEl.innerText = 'Error en la conexión.';
-    };
-    ws.onclose = () => {
-      estadoEl.innerText = 'Conexión cerrada.';
-    };
+    }
 
-    // ICE: enviar candidatos
-    pc.onicecandidate = ({ candidate }) => {
-      if (candidate) sendSignal({ candidate });
-    };
-
-    // VIDEO/AUDIO Bidireccional
+    // --- Función principal WebRTC ---
     async function startWebRTC() {
-      try {
-        // Si ya existe, no volver a pedirlo
-        if (!localStream) {
-          localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      // Si hay una conexión previa, ciérrala y crea una nueva
+      if (pc) try { pc.close(); } catch {}
+      pc = new RTCPeerConnection({ iceServers:[{ urls:'stun:stun.l.google.com:19302' }] });
+
+      // Reasignar eventos
+      pc.onicecandidate = ({ candidate }) => { if (candidate) sendSignal({ candidate }); };
+
+      // LIMPIA remoteStream
+      remoteStream = new MediaStream();
+      remoteVideo.srcObject = remoteStream;
+
+      pc.ontrack = function(ev) {
+        // Añadir solo si no está ya en el stream
+        if (!remoteStream.getTracks().find(t => t.id === ev.track.id)) {
+          remoteStream.addTrack(ev.track);
         }
+      };
 
-        // Siempre asegurarse de mostrar el vídeo local
-        localVideo.srcObject = localStream;
-
-        // Añade los tracks SÓLO si aún no existen en la conexión
-        const existingTracks = pc.getSenders().map(s => s.track).filter(Boolean);
-        localStream.getTracks().forEach(track => {
-          if (!existingTracks.includes(track)) {
-            pc.addTrack(track, localStream);
-          }
-        });
-
-        // Track de audio local para walkie
-        localAudioTrack = localStream.getAudioTracks()[0];
-        if (localAudioTrack) localAudioTrack.enabled = false;
-
-        // MIDI Data Channel
-        if (!midiChannel || midiChannel.readyState === 'closed') {
-          midiChannel = pc.createDataChannel('midi');
-          midiChannel.onopen = () => {
-            midiDataChannelReady = true;
-            estadoEl.innerText += ' | Canal MIDI listo';
-          };
+      // MIDI DataChannel
+      pc.ondatachannel = function(ev) {
+        if (ev.channel.label === "midi") {
+          midiChannel = ev.channel;
           midiChannel.onmessage = function(event) {
             handleDataChannelMessage(event);
           };
         }
+      };
 
-        // Oferta WebRTC
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        sendSignal({ offer: pc.localDescription });
-
-      } catch (err) {
-        estadoEl.innerText = 'Error al iniciar WebRTC.';
+      // Captura cámara si no existe
+      if (!localStream) {
+        localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        localVideo.srcObject = localStream;
       }
+      // Asegura siempre que tu cámara local está en el video, aunque renegocies
+      localVideo.srcObject = localStream;
+
+      // Añade solo si no existe ese track en la conexión
+      localStream.getTracks().forEach(track => {
+        if (!pc.getSenders().find(s => s.track && s.track.id === track.id)) {
+          pc.addTrack(track, localStream);
+        }
+      });
+
+      // Walkie-talkie: mutea tu micro al arrancar
+      localAudioTrack = localStream.getAudioTracks()[0];
+      if (localAudioTrack) localAudioTrack.enabled = false;
+
+      // Solo el artista crea el canal midi si no existe
+      if (!midiChannel || midiChannel.readyState === 'closed') {
+        midiChannel = pc.createDataChannel('midi');
+        midiChannel.onopen = () => {};
+        midiChannel.onmessage = function(event) {
+          handleDataChannelMessage(event);
+        };
+      }
+
+      // Negociación
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      sendSignal({ offer: pc.localDescription });
     }
 
-    // Recibir vídeo y audio remotos
-    let remoteStream = null;
-    pc.ontrack = function(ev) {
-      if (!remoteStream) {
-        remoteStream = new MediaStream();
-        remoteVideo.srcObject = remoteStream;
-      }
-      // Evita duplicar tracks
-      if (!remoteStream.getTracks().find(t => t.id === ev.track.id)) {
-        remoteStream.addTrack(ev.track);
-      }
-      if (ev.track.kind === "audio") {
-        remoteAudioTrack = ev.track;
-      }
-    };
-
-    // Chat
-    function appendChat(user, text) {
-      const msgEl = document.createElement('div');
-      const time = new Date().toLocaleTimeString();
-      if (user === username) msgEl.classList.add('msg-artista');
-      msgEl.innerHTML = `<small>[${time}]</small> <strong>${user}:</strong> ${text}`;
-      chatLog.appendChild(msgEl);
-      chatLog.scrollTop = chatLog.scrollHeight;
-    }
-    function sendChat() {
-      const text = chatInput.value.trim();
-      if (!text || ws.readyState !== WebSocket.OPEN) return;
-      ws.send(JSON.stringify({ type: 'chat', user: username, text }));
-      chatInput.value = '';
-    }
-    sendChatBtn.addEventListener('click', sendChat);
-    chatInput.addEventListener('keydown', e => { if (e.key === 'Enter') sendChat(); });
-
-    // MIDI local
+    // --- MIDI Local ---
     navigator.requestMIDIAccess().then(midiAccess => {
       const inputs = midiAccess.inputs;
       if (inputs.size === 0) {
@@ -271,7 +242,7 @@
       }
     }
 
-    // Walkie-talkie eventos
+    // --- Walkie-talkie ---
     function setTalkStatus() {
       if (isTalking) {
         talkStatus.innerHTML = `<b>Estás hablando</b> (micrófono activo)`;
@@ -281,15 +252,11 @@
         talkStatus.innerHTML = `Walkie-talkie: Mantén pulsado para hablar`;
       }
     }
-
-    // Envía mensaje al otro para avisar de estado walkie-talkie
     function sendWalkieSignal(talking) {
       if (midiChannel && midiChannel.readyState === 'open') {
         midiChannel.send(JSON.stringify({ type: 'walkie', talking: talking }));
       }
     }
-
-    // Recibe mensajes por canal de datos
     function handleDataChannelMessage(event) {
       try {
         const msg = JSON.parse(event.data);
@@ -298,11 +265,8 @@
           if (localAudioTrack) localAudioTrack.enabled = !otherIsTalking && isTalking;
           setTalkStatus();
         }
-        // También puede ser mensaje MIDI, lo descartamos aquí.
       } catch (e) { }
     }
-
-    // Control botón walkie-talkie
     talkBtn.addEventListener('mousedown', startTalking);
     talkBtn.addEventListener('touchstart', e => { e.preventDefault(); startTalking(); });
     talkBtn.addEventListener('mouseup', stopTalking);
@@ -322,9 +286,28 @@
       sendWalkieSignal(false);
       setTalkStatus();
     }
-
     setTalkStatus();
 
+    // --- Chat ---
+    function appendChat(user, text) {
+      const msgEl = document.createElement('div');
+      const time = new Date().toLocaleTimeString();
+      if (user === username) msgEl.classList.add('msg-artista');
+      msgEl.innerHTML = `<small>[${time}]</small> <strong>${user}:</strong> ${text}`;
+      chatLog.appendChild(msgEl);
+      chatLog.scrollTop = chatLog.scrollHeight;
+    }
+    function sendChat() {
+      const text = chatInput.value.trim();
+      if (!text || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify({ type: 'chat', user: username, text }));
+      chatInput.value = '';
+    }
+    sendChatBtn.addEventListener('click', sendChat);
+    chatInput.addEventListener('keydown', e => { if (e.key === 'Enter') sendChat(); });
+
+    // --- Inicia la conexión ---
+    initWebSocket();
   </script>
 </body>
 </html>
