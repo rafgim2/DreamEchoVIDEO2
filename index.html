@@ -6,9 +6,12 @@
   <style>
     html, body { height:100%; margin:0; font-family:sans-serif; background-color:#f5f5f5; }
     body { display:flex; justify-content:center; align-items:center; text-align:center; }
-    .container { max-width:600px; width:90%; padding:2em; background:white; border-radius:1em; border:3px solid orange; box-shadow:0 0 20px rgba(0,0,0,0.1); }
+    .container { max-width:700px; width:95%; padding:2em; background:white; border-radius:1em; border:3px solid orange; box-shadow:0 0 20px rgba(0,0,0,0.1); }
     h1 { font-size:3em; margin-bottom:.2em; }
     video { width:100%; max-height:300px; border-radius:.5em; margin-bottom:1em; background:black; }
+    .video-box { display:flex; gap:1em; justify-content:center; }
+    .video-wrap { flex:1 1 0; display:flex; flex-direction:column; align-items:center; }
+    .video-wrap span { font-size:0.95em; color:#888; margin-top:.4em; }
     .byline { margin-bottom:.8em; font-size:.9em; }
     .byline a { color:#333; text-decoration:none; }
     .byline a:hover { text-decoration:underline; }
@@ -19,13 +22,40 @@
     #midiLabel { font-size:1em; margin-right:.5em; }
     #midiSelect { margin:1em 0; padding:.5em; font-size:1em; }
     .msg-artista { color:blue; }
+    #talkBtn {
+      background: orange;
+      color: white;
+      border: none;
+      border-radius: .5em;
+      font-size: 1.2em;
+      padding: .7em 1.7em;
+      margin-bottom: 1em;
+      cursor: pointer;
+      box-shadow: 0 2px 7px rgba(255,140,0,0.09);
+      outline: none;
+      transition: background 0.18s;
+    }
+    #talkBtn:active { background: #c07500; }
+    #talkStatus { margin-bottom: 1em; font-size:1em; color:#555; }
   </style>
 </head>
 <body>
   <div class="container">
     <h1>DreamEcho - Artista</h1>
     <p class="byline"><a href="https://www.youtube.com/@rafgim" target="_blank" rel="noopener">© By Rafael Gimeno</a></p>
-    <video id="localVideo" autoplay muted playsinline></video>
+    
+    <div class="video-box">
+      <div class="video-wrap">
+        <video id="localVideo" autoplay muted playsinline></video>
+        <span>Tú</span>
+      </div>
+      <div class="video-wrap">
+        <video id="remoteVideo" autoplay playsinline></video>
+        <span>Oyente</span>
+      </div>
+    </div>
+    <div id="talkStatus">Walkie-talkie: Mantén pulsado para hablar</div>
+    <button id="talkBtn">🔊 Hablar</button>
     <p id="estado">Conectando...</p>
     <p id="oyentes">Oyentes conectados: --</p>
 
@@ -43,6 +73,9 @@
     const midiControles = document.getElementById('midiControles');
     const midiSelect = document.getElementById('midiSelect');
     const localVideo = document.getElementById('localVideo');
+    const remoteVideo = document.getElementById('remoteVideo');
+    const talkBtn = document.getElementById('talkBtn');
+    const talkStatus = document.getElementById('talkStatus');
 
     // WebSocket para señalización y chat
     const ws = new WebSocket('wss://dreamecho.onrender.com');
@@ -55,9 +88,16 @@
     let prevClients = 0;
     const username = prompt('¿Cómo quieres que te vean en el chat?', 'Artista') || 'Artista';
 
+    // Walkie-talkie control
+    let localAudioTrack = null;
+    let remoteAudioTrack = null;
+    let isTalking = false;
+    let otherIsTalking = false;
+    let midiDataChannelReady = false;
+    let awaitingRemoteAudio = false;
+
     // Enviar señalización por WS
     function sendSignal(data) {
-      console.log('Enviando señal:', data);
       ws.send(JSON.stringify({ type: 'signal', ...data }));
     }
 
@@ -69,14 +109,12 @@
     ws.onmessage = async ({ data }) => {
       const raw = typeof data === 'string' ? data : await data.text();
       const msg = JSON.parse(raw);
-      console.log('WS recibido:', msg);
 
       if (msg.type === 'stats') {
         const clients = msg.clients;
         oyentesEl.innerText = `Oyentes conectados: ${clients}`;
         // Si hay más oyentes (no el primer mensaje), renegociamos
         if (prevClients > 0 && clients > prevClients) {
-          console.log('Nuevo oyente detectado, renegociando...');
           startWebRTC();
         }
         prevClients = clients;
@@ -89,28 +127,23 @@
       if (msg.type === 'signal') {
         // Señalización WebRTC
         if (msg.offer) {
-          console.log('Recibida oferta, respondiendo...');
           await pc.setRemoteDescription(new RTCSessionDescription(msg.offer));
           const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
           sendSignal({ answer: pc.localDescription });
         }
         if (msg.answer) {
-          console.log('Recibida respuesta, aplicando SDP...');
           await pc.setRemoteDescription(new RTCSessionDescription(msg.answer));
         }
         if (msg.candidate) {
-          console.log('Recibido candidato ICE, añadiendo...');
           await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
         }
       }
     };
     ws.onerror = err => {
-      console.error('WS error:', err);
       estadoEl.innerText = 'Error en la conexión.';
     };
     ws.onclose = () => {
-      console.warn('WS cerrado');
       estadoEl.innerText = 'Conexión cerrada.';
     };
 
@@ -119,29 +152,60 @@
       if (candidate) sendSignal({ candidate });
     };
 
-    // Captura de vídeo y negociación
+    // VIDEO/AUDIO Bidireccional
     async function startWebRTC() {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-        stream.getTracks().forEach(track => pc.addTrack(track, stream));
+        // Elimina tracks previos
+        pc.getSenders().forEach(sender => {
+          if (sender.track) sender.track.stop();
+          pc.removeTrack(sender);
+        });
+
+        // Captura audio y vídeo
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
         localVideo.srcObject = stream;
-        // Canal MIDI sobre WebRTC
+
+        // Guardar referencia al track de audio para walkie-talkie
+        localAudioTrack = stream.getAudioTracks()[0];
+        // Por defecto muteado
+        if (localAudioTrack) localAudioTrack.enabled = false;
+
+        stream.getTracks().forEach(track => pc.addTrack(track, stream));
+
+        // MIDI Data Channel
         if (!midiChannel || midiChannel.readyState === 'closed') {
           midiChannel = pc.createDataChannel('midi');
           midiChannel.onopen = () => {
-            console.log('Canal MIDI WebRTC abierto');
+            midiDataChannelReady = true;
             estadoEl.innerText += ' | Canal MIDI listo';
           };
+          midiChannel.onmessage = function(event) {
+            handleDataChannelMessage(event);
+          };
         }
+
+        // Oferta WebRTC
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
-        console.log('Enviando oferta WebRTC');
         sendSignal({ offer: pc.localDescription });
+
       } catch (err) {
-        console.error('Error WebRTC:', err);
         estadoEl.innerText = 'Error al iniciar WebRTC.';
       }
     }
+
+    // Recibir vídeo y audio remotos
+    let remoteStream = null;
+    pc.ontrack = function(ev) {
+      if (!remoteStream) {
+        remoteStream = new MediaStream();
+        remoteVideo.srcObject = remoteStream;
+      }
+      remoteStream.addTrack(ev.track);
+      if (ev.track.kind === "audio") {
+        remoteAudioTrack = ev.track;
+      }
+    };
 
     // Chat
     function appendChat(user, text) {
@@ -189,7 +253,7 @@
           if (!startTime) startTime = now;
           const rel = now - startTime;
           if (midiChannel && midiChannel.readyState === 'open') {
-            midiChannel.send(JSON.stringify({ data: Array.from(data), time: rel }));
+            midiChannel.send(JSON.stringify({ type: 'midi', data: Array.from(data), time: rel }));
           }
         };
         activeMIDIInput = input;
@@ -198,6 +262,61 @@
         estadoEl.innerText = 'Dispositivo MIDI no encontrado.';
       }
     }
+
+    // Walkie-talkie eventos
+    function setTalkStatus() {
+      if (isTalking) {
+        talkStatus.innerHTML = `<b>Estás hablando</b> (micrófono activo)`;
+      } else if (otherIsTalking) {
+        talkStatus.innerHTML = `<b>El oyente está hablando</b> (tu micro silenciado)`;
+      } else {
+        talkStatus.innerHTML = `Walkie-talkie: Mantén pulsado para hablar`;
+      }
+    }
+
+    // Envía mensaje al otro para avisar de estado walkie-talkie
+    function sendWalkieSignal(talking) {
+      if (midiChannel && midiChannel.readyState === 'open') {
+        midiChannel.send(JSON.stringify({ type: 'walkie', talking: talking }));
+      }
+    }
+
+    // Recibe mensajes por canal de datos
+    function handleDataChannelMessage(event) {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.type === 'walkie') {
+          otherIsTalking = msg.talking;
+          if (localAudioTrack) localAudioTrack.enabled = !otherIsTalking && isTalking;
+          setTalkStatus();
+        }
+        // También puede ser mensaje MIDI, lo descartamos aquí.
+      } catch (e) { }
+    }
+
+    // Control botón walkie-talkie
+    talkBtn.addEventListener('mousedown', startTalking);
+    talkBtn.addEventListener('touchstart', e => { e.preventDefault(); startTalking(); });
+    talkBtn.addEventListener('mouseup', stopTalking);
+    talkBtn.addEventListener('mouseleave', stopTalking);
+    talkBtn.addEventListener('touchend', stopTalking);
+    talkBtn.addEventListener('touchcancel', stopTalking);
+
+    function startTalking() {
+      isTalking = true;
+      if (localAudioTrack) localAudioTrack.enabled = true;
+      sendWalkieSignal(true);
+      setTalkStatus();
+    }
+    function stopTalking() {
+      isTalking = false;
+      if (localAudioTrack) localAudioTrack.enabled = false;
+      sendWalkieSignal(false);
+      setTalkStatus();
+    }
+
+    setTalkStatus();
+
   </script>
 </body>
 </html>
