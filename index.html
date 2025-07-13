@@ -94,7 +94,9 @@
     let isTalking = false;
     let otherIsTalking = false;
     let midiDataChannelReady = false;
-    let awaitingRemoteAudio = false;
+
+    // Stream local persistente (para no pedir permisos ni romper la cámara)
+    let localStream = null;
 
     // Enviar señalización por WS
     function sendSignal(data) {
@@ -155,22 +157,25 @@
     // VIDEO/AUDIO Bidireccional
     async function startWebRTC() {
       try {
-        // Elimina tracks previos
-        pc.getSenders().forEach(sender => {
-          if (sender.track) sender.track.stop();
-          pc.removeTrack(sender);
+        // Si ya existe, no volver a pedirlo
+        if (!localStream) {
+          localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        }
+
+        // Siempre asegurarse de mostrar el vídeo local
+        localVideo.srcObject = localStream;
+
+        // Añade los tracks SÓLO si aún no existen en la conexión
+        const existingTracks = pc.getSenders().map(s => s.track).filter(Boolean);
+        localStream.getTracks().forEach(track => {
+          if (!existingTracks.includes(track)) {
+            pc.addTrack(track, localStream);
+          }
         });
 
-        // Captura audio y vídeo
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-        localVideo.srcObject = stream;
-
-        // Guardar referencia al track de audio para walkie-talkie
-        localAudioTrack = stream.getAudioTracks()[0];
-        // Por defecto muteado
+        // Track de audio local para walkie
+        localAudioTrack = localStream.getAudioTracks()[0];
         if (localAudioTrack) localAudioTrack.enabled = false;
-
-        stream.getTracks().forEach(track => pc.addTrack(track, stream));
 
         // MIDI Data Channel
         if (!midiChannel || midiChannel.readyState === 'closed') {
@@ -201,7 +206,10 @@
         remoteStream = new MediaStream();
         remoteVideo.srcObject = remoteStream;
       }
-      remoteStream.addTrack(ev.track);
+      // Evita duplicar tracks
+      if (!remoteStream.getTracks().find(t => t.id === ev.track.id)) {
+        remoteStream.addTrack(ev.track);
+      }
       if (ev.track.kind === "audio") {
         remoteAudioTrack = ev.track;
       }
