@@ -2,136 +2,92 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <title>DreamEcho - Artista Walkie-Talkie</title>
+  <title>DreamEcho - Artista</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
-    body { margin:0; font-family:sans-serif; background:#f5f5f5; display:flex; flex-direction:column; align-items:center; }
-    .container { max-width:800px; width:95%; background:white; padding:1em; margin:1em; border-radius:8px; box-shadow:0 2px 10px rgba(0,0,0,0.1); }
-    h1 { text-align:center; }
-    .videos { display:flex; justify-content:space-between; margin:1em 0; }
-    video { width:48%; background:black; border-radius:4px; }
-    #status, #oyentes { text-align:center; margin:0.5em 0; }
-    .controls { text-align:center; margin:0.5em 0; }
-    button, select, input { font-size:1em; padding:0.5em; margin:0.2em; }
-    #chatLog { height:120px; overflow-y:auto; border:1px solid #ccc; padding:0.5em; background:#fafafa; }
-    .chat-propio { color:blue; }
+    body, html {margin:0; padding:0; height:100%; font-family:sans-serif; background:#f5f5f5; display:flex; align-items:center; justify-content:center;}
+    .container {width:90%; max-width:800px; background:white; border:3px solid orange; border-radius:1em; box-shadow:0 0 20px rgba(0,0,0,0.1); padding:1em;}
+    h1 {margin-top:0; font-size:2em;}
+    video {width:45%; margin:0.5%; background:black; border-radius:0.5em;}
+    #controls {display:flex; justify-content:space-between; margin-top:1em;}
+    button, select {font-size:1em; padding:0.5em; margin:0.2em;}
+    #chatLog {height:100px; overflow:auto; border:1px solid #ccc; padding:0.5em; margin-top:1em; background:#fafafa;}
+    /* PTT button style */
+    #ptt {background:red; color:white;}
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>DreamEcho - Artista</h1>
-    <div class="videos">
+    <h1>DreamEcho - Artista (Bidireccional)</h1>
+    <div id="videos">
       <video id="localVideo" autoplay muted playsinline></video>
-      <video id="remoteVideo" autoplay playsinline controls></video>
+      <video id="remoteVideo" autoplay playsinline></video>
     </div>
-    <p id="status">Conectando...</p>
-    <p id="oyentes">Oyentes: --</p>
-    <div class="controls">
-      <button id="talkBtn" disabled>Hablar (mantener)</button>
-      <button onclick="modoMIDI()">🎹 Piano Digital</button>
-      <button onclick="modoVirtual()">🎧 Piano Virtual</button>
+    <div id="controls">
+      <button id="ptt">🔴 Hablar</button>
+      <div>
+        <label for="midiSelect">MIDI Out:</label>
+        <select id="midiSelect"></select>
+      </div>
+      <button id="sendChatBtn">🗨️ Enviar Chat</button>
+      <input id="chatInput" placeholder="Mensaje..." />
     </div>
-    <div id="midiSelectContainer"></div>
-    <div id="chatControles">
-      <div id="chatLog"></div>
-      <input id="chatInput" placeholder="Mensaje…" />
-      <button id="sendChatBtn">Enviar</button>
-    </div>
+    <div id="chatLog"></div>
   </div>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.39/Tone.min.js"></script>
   <script>
-    const statusEl=document.getElementById('status');
-    const oyentesEl=document.getElementById('oyentes');
-    const localVideo=document.getElementById('localVideo');
-    const remoteVideo=document.getElementById('remoteVideo');
-    const talkBtn=document.getElementById('talkBtn');
-    const chatLog=document.getElementById('chatLog');
-    const chatInput=document.getElementById('chatInput');
-    const sendChatBtn=document.getElementById('sendChatBtn');
-    const midiSelectContainer=document.getElementById('midiSelectContainer');
+    const localVideo = document.getElementById('localVideo');
+    const remoteVideo = document.getElementById('remoteVideo');
+    const ptt = document.getElementById('ptt');
+    const midiSelect = document.getElementById('midiSelect');
+    const chatLog = document.getElementById('chatLog');
+    const chatInput = document.getElementById('chatInput');
+    const sendChatBtn = document.getElementById('sendChatBtn');
 
-    let ws,pc,midiChannel;
-    let audioTrack;
-    let canTalk=false, midiActive=false;
-    const username=prompt('Tu nombre:','Artista')||'Artista';
+    const ws = new WebSocket('wss://dreamecho.onrender.com');
+    const pc = new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'}]});
+    let midiChannel, isTalking=false, output=null;
+    const username = prompt('Tu nombre:','Artista')||'Artista';
 
-    // Setup WebSocket & PeerConnection
-    ws=new WebSocket('wss://dreamecho.onrender.com');
-    pc=new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'}]});
-
-    ws.onopen=()=>{ statusEl.textContent='Conectado'; initMedia(); };
-    ws.onmessage=async ({data})=>{
-      const msg=JSON.parse(data);
-      if(msg.type==='stats') oyentesEl.textContent=`Oyentes: ${msg.clients}`;
-      else if(msg.type==='chat') appendChat(msg.user,msg.text);
-      else if(msg.type==='talk') handlePeerTalk(msg.talking);
-      else if(msg.type==='midiActive') handlePeerMidiActive();
-      else if(msg.type==='signal'){
-        if(msg.offer){ await pc.setRemoteDescription(msg.offer);
-          const answer=await pc.createAnswer(); await pc.setLocalDescription(answer);
-          ws.send(JSON.stringify({type:'signal',answer:pc.localDescription}));
-        } else if(msg.answer) await pc.setRemoteDescription(msg.answer);
-        else if(msg.candidate) await pc.addIceCandidate(msg.candidate);
-      }
-    };
-    ws.onerror=()=>statusEl.textContent='Error WS';
-    ws.onclose=()=>statusEl.textContent='WS cerrado';
-
-    pc.onicecandidate=({candidate})=>{ if(candidate) ws.send(JSON.stringify({type:'signal',candidate})); };
-    pc.ontrack=ev=>{ remoteVideo.srcObject=ev.streams[0]; };
-    pc.ondatachannel=ev=>{ if(ev.channel.label==='midi'){ midiChannel=ev.channel;
-        midiChannel.onmessage=e=>handleMidiMessage(JSON.parse(e.data)); }};
-
-    async function initMedia(){
-      const stream=await navigator.mediaDevices.getUserMedia({video:true,audio:true});
+    // STREAM local (audio/video)
+    async function setupMedia(){
+      const stream = await navigator.mediaDevices.getUserMedia({video:true,audio:true});
       stream.getTracks().forEach(t=>pc.addTrack(t,stream));
       localVideo.srcObject=stream;
-      audioTrack=stream.getAudioTracks()[0];
-      midiChannel=pc.createDataChannel('midi'); setupMidiChannel(midiChannel);
-      const offer=await pc.createOffer(); await pc.setLocalDescription(offer);
-      ws.send(JSON.stringify({type:'signal',offer:pc.localDescription}));
-      // enable talk button now
-      talkBtn.disabled=false;
+      // control PTT
+      ptt.addEventListener('mousedown',()=>{if(!isMidiSending){setMic(true);} });
+      ptt.addEventListener('mouseup',()=>{setMic(false);} );
+      function setMic(on){isTalking=on; stream.getAudioTracks()[0].enabled=on; ptt.textContent=on?'🟢 Hablando':'🔴 Hablar';}
+      // start muted
+      setMic(false);
     }
 
-    // Push-to-talk
-    talkBtn.onmousedown=()=>{ if(!midiActive){ canTalk=true; audioTrack.enabled=true; ws.send(JSON.stringify({type:'talk',user:username,talking:true})); talkBtn.textContent='Hablando...'; }};
-    talkBtn.onmouseup=()=>{ if(canTalk){ canTalk=false; audioTrack.enabled=false; ws.send(JSON.stringify({type:'talk',user:username,talking:false})); talkBtn.textContent='Hablar (mantener)'; }};
+    // SIGNAL via WS
+    pc.onicecandidate = e=>{ if(e.candidate) ws.send(JSON.stringify({type:'signal',candidate:e.candidate})); };
+    pc.ontrack = e=>{ remoteVideo.srcObject = e.streams[0]; };
+    pc.ondatachannel = e=>{ if(e.channel.label==='midi'){ midiChannel=e.channel; midiChannel.onmessage=onMidi; } };
 
-    function handlePeerTalk(talking){ remoteVideo.muted=false; if(talking){ audioTrack.enabled=false; } else if(!canTalk&&!midiActive){ audioTrack.enabled=true; }}
+    ws.onopen = ()=>{ setupMedia().then(()=>offer()); setupMIDI()); };
+    ws.onmessage = async ev=>{
+      const msg = JSON.parse(ev.data);
+      if(msg.type==='signal'){
+        if(msg.offer){ await pc.setRemoteDescription(msg.offer); const ans=await pc.createAnswer(); await pc.setLocalDescription(ans); ws.send(JSON.stringify({type:'signal',answer:pc.localDescription})); }
+        else if(msg.answer) await pc.setRemoteDescription(msg.answer);
+        else if(msg.candidate) await pc.addIceCandidate(msg.candidate);
+      } else if(msg.type==='chat'){ appendChat(msg.user,msg.text); }
+    };
 
-    function handlePeerMidiActive(){
-      midiActive=true;
-      talkBtn.disabled=true;
-      setTimeout(()=>{ midiActive=false; talkBtn.disabled=false; },300);
-    }
+    async function offer(){ const offer=await pc.createOffer(); await pc.setLocalDescription(offer); ws.send(JSON.stringify({type:'signal',offer:pc.localDescription})); }
 
-    // Chat
-    function appendChat(user,text){ const d=document.createElement('div'); d.innerHTML=`<small>[${new Date().toLocaleTimeString()}]</small> <strong>${user}:</strong> ${text}`; if(user===username)d.classList.add('chat-propio'); chatLog.appendChild(d); chatLog.scrollTop=chatLog.scrollHeight; }
-    sendChatBtn.onclick=()=>{ const t=chatInput.value.trim(); if(t&&ws.readyState===WebSocket.OPEN){ ws.send(JSON.stringify({type:'chat',user:username,text:t})); chatInput.value=''; }};
-    chatInput.onkeydown=e=>{ if(e.key==='Enter') sendChatBtn.click(); };
+    // CHAT
+    function appendChat(u,t){ const d=document.createElement('div'); d.textContent=`${u}: ${t}`; chatLog.appendChild(d); }
+    sendChatBtn.onclick=()=>{ const t=chatInput.value; if(t){ ws.send(JSON.stringify({type:'chat',user:username,text:t})); appendChat(username,t); chatInput.value=''; }};
 
-    // Setup MIDI channel
-    function setupMidiChannel(ch){ ch.onopen=()=>{}; }
+    // MIDI CHANNEL
+    function setupMIDI(){ navigator.requestMIDIAccess().then(ma=>{ [...ma.outputs.values()].forEach(o=>{ const opt=document.createElement('option'); opt.value=o.id; opt.text=o.name; midiSelect.add(opt); }); midiSelect.onchange=()=>output=ma.outputs.get(midiSelect.value);
+      const inputs=ma.inputs; inputs.forEach(inp=>{ inp.onmidimessage=e=>{ if(!isTalking){ midiChannel.send(JSON.stringify({data:Array.from(e.data)})); }}; }); }); }
+    function onMidi(ev){ const msg=JSON.parse(ev.data); if(!isTalking && output){ output.send(new Uint8Array(msg.data)); }}
 
-    // MIDI physical mode
-    function modoMIDI(){ navigator.requestMIDIAccess().then(ma=>{
-        midiSelectContainer.innerHTML=''; const sel=document.createElement('select'); sel.innerHTML='<option>--Salida MIDI--</option>';
-        Array.from(ma.outputs.values()).forEach(o=>sel.innerHTML+=`<option value="${o.id}">${o.name}</option>`);
-        sel.onchange=()=>{ output=ma.outputs.get(sel.value); statusEl.textContent=`Salida MIDI: ${output.name}`; };
-        sel.value=Array.from(ma.outputs.keys())[0]; sel.dispatchEvent(new Event('change')); midiSelectContainer.appendChild(sel);
-        Array.from(ma.inputs.values()).forEach(inp=> inp.onmidimessage=evt=>{
-          // on send MIDI
-          if(midiChannel.readyState==='open') midiChannel.send(JSON.stringify({data:Array.from(evt.data),time:performance.now()}));
-          ws.send(JSON.stringify({type:'midiActive'}));
-        });
-      }); }
-
-    // Virtual piano mode
-    async function modoVirtual(){ await Tone.start(); synth=new Tone.Sampler({urls:{A4:'A4.mp3'},baseUrl:'https://tonejs.github.io/audio/salamander/'}).toDestination(); }
-
-    // Handle incoming MIDI
-    function handleMidiMessage(msg){ if(output) output.send(new Uint8Array(msg.data)); ws.send(JSON.stringify({type:'midiActive'})); }
   </script>
 </body>
 </html>
