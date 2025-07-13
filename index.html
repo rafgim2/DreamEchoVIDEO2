@@ -6,15 +6,18 @@
   <style>
     html, body { height:100%; margin:0; font-family:sans-serif; background-color:#f5f5f5; }
     body { display:flex; justify-content:center; align-items:center; text-align:center; }
-    .container { max-width:620px; width:90%; padding:2em; background:white; border-radius:1em; border:3px solid orange; box-shadow:0 0 20px rgba(0,0,0,0.1); }
-    h1 { font-size:3em; margin-bottom:.2em; }
-    video { width:100%; max-height:260px; border-radius:.5em; margin-bottom:.8em; background:black; }
-    #remoteVideo { transform:scaleX(-1); } /* espejado para sensación cara a cara */
+    .container { max-width:720px; width:95%; padding:2em; background:white; border-radius:1em; border:3px solid orange; box-shadow:0 0 20px rgba(0,0,0,0.1); }
+    h1 { font-size:3em; margin-bottom:.3em; }
+
+    /* —— Vídeos lado a lado —— */
+    .videos { display:flex; gap:1%; justify-content:center; align-items:center; flex-wrap:wrap; margin-bottom:.8em; }
+    video { flex:1 1 48%; height:auto; border-radius:.5em; background:black; }
+    #remoteVideo { transform:scaleX(-1); }
 
     .byline { margin-bottom:.8em; font-size:.9em; }
     .byline a { color:#333; text-decoration:none; }
     .byline a:hover { text-decoration:underline; }
-    p { font-size:1.1em; margin:.3em 0; }
+    p { font-size:1.05em; margin:.25em 0; }
 
     #pushTalkBtn { padding:.7em 1.4em; font-size:1.1em; border:none; border-radius:.6em; background:#ff9800; color:white; cursor:pointer; transition:background .2s; }
     #pushTalkBtn.talking { background:#d32f2f; }
@@ -32,8 +35,10 @@
     <h1>DreamEcho - Artista</h1>
     <p class="byline"><a href="https://www.youtube.com/@rafgim" target="_blank" rel="noopener">© By Rafael Gimeno</a></p>
 
-    <video id="localVideo" autoplay muted playsinline></video>
-    <video id="remoteVideo" autoplay playsinline></video>
+    <div class="videos">
+      <video id="localVideo" autoplay muted playsinline></video>
+      <video id="remoteVideo" autoplay playsinline></video>
+    </div>
     <button id="pushTalkBtn" disabled>🎙️ Mantener para hablar</button>
 
     <p id="estado">Conectando...</p>
@@ -96,7 +101,7 @@ pc.onicecandidate = ({candidate})=>{ if(candidate) sendSignal({candidate}); };
 
 // ===================== Recepción de vídeo/ audio remoto =====================
 const remoteStream = new MediaStream(); remoteVideo.srcObject = remoteStream;
-pc.ontrack = ({track, streams})=>{ remoteStream.addTrack(track); };
+pc.ontrack = ({track})=>{ remoteStream.addTrack(track); };
 
 // ===================== WebRTC init =====================
 async function startWebRTC(){
@@ -116,8 +121,8 @@ async function startWebRTC(){
   }catch(err){ console.error(err); estadoEl.innerText='Error al iniciar WebRTC.'; }
 }
 
-// ===================== Walkie‑talkie =====================
-function startTalking(){ if(!localAudioTrack)return; localAudioTrack.enabled=true; remoteVideo.muted=true; pushTalkBtn.classList.add('talking'); }
+// ===================== Walkie-talkie =====================
+function startTalking(e){ e.preventDefault(); if(!localAudioTrack)return; localAudioTrack.enabled=true; remoteVideo.muted=true; pushTalkBtn.classList.add('talking'); }
 function stopTalking(){ if(!localAudioTrack)return; localAudioTrack.enabled=false; remoteVideo.muted=false; pushTalkBtn.classList.remove('talking'); }
 
 pushTalkBtn.addEventListener('mousedown',startTalking);
