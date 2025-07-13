@@ -54,7 +54,7 @@
     const notasActivas = new Set(), notasSostenidas = new Set();
     const username = prompt('¿Cómo quieres que te vean en el chat?','Artista') || 'Artista';
 
-    // Señalización y WebRTC
+    // Setup WebSocket and PeerConnection
     ws = new WebSocket('wss://dreamecho.onrender.com');
     pc = new RTCPeerConnection({ iceServers:[{ urls:'stun:stun.l.google.com:19302' }] });
 
@@ -67,49 +67,71 @@
         appendChat(msg.user,msg.text);
       } else if(msg.type==='signal'){
         if(msg.offer){
+          // Receive tracks
           pc.addTransceiver('video',{ direction:'recvonly' });
           pc.addTransceiver('audio',{ direction:'recvonly' });
-          await pc.setRemoteDescription(new RTCSessionDescription(msg.offer));
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
+          await pc.setRemoteDescription(msg.offer);
+          const answer = await pc.createAnswer(); await pc.setLocalDescription(answer);
           ws.send(JSON.stringify({ type:'signal', answer:pc.localDescription }));
         } else if(msg.answer){
-          await pc.setRemoteDescription(new RTCSessionDescription(msg.answer));
+          await pc.setRemoteDescription(msg.answer);
         } else if(msg.candidate){
-          await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
+          await pc.addIceCandidate(msg.candidate);
         }
       }
     };
-    ws.onerror = () => { statusEl.textContent = 'Error en la conexión.'; };
-    ws.onclose = () => { statusEl.textContent = 'Conexión cerrada.'; };
+    ws.onerror = () => statusEl.textContent = 'Error en la conexión.';
+    ws.onclose = () => statusEl.textContent = 'Conexión cerrada.';
 
-    pc.onicecandidate = ({ candidate })=>{
+    pc.onicecandidate = ({ candidate }) => {
       if(candidate) ws.send(JSON.stringify({ type:'signal', candidate }));
     };
     pc.ontrack = ev => {
       remoteVideo.srcObject = ev.streams[0];
+      // Mute local mic whenever remote audio plays
+      const remoteStream = ev.streams[0];
+      const audioCtx = new AudioContext();
+      const src = audioCtx.createMediaStreamSource(remoteStream);
+      const analyser = audioCtx.createAnalyser(); analyser.fftSize = 256;
+      src.connect(analyser);
+      const dataArray = new Uint8Array(analyser.fftSize);
+      function checkAudio() {
+        analyser.getByteTimeDomainData(dataArray);
+        const sum = dataArray.reduce((s,v)=>s+Math.abs(v-128),0);
+        const avg = sum/dataArray.length;
+        if(avg>10) {
+          // remote playing
+          if(audioTrack) audioTrack.enabled = false;
+        } else {
+          if(audioTrack) audioTrack.enabled = true;
+        }
+        requestAnimationFrame(checkAudio);
+      }
+      checkAudio();
     };
+
+    // Setup DataChannel
     pc.ondatachannel = ev => {
       if(ev.channel.label==='midi'){
         midiChannel = ev.channel;
         midiChannel.onmessage = e => {
           // Mute mic on incoming MIDI
-          if(audioTrack){ audioTrack.enabled=false; clearTimeout(muteTimeout); muteTimeout=setTimeout(()=>audioTrack.enabled=true,300); }
+          if(audioTrack){ audioTrack.enabled = false; clearTimeout(muteTimeout); muteTimeout = setTimeout(()=>audioTrack.enabled=true,300); }
           handleMidiMessage(JSON.parse(e.data));
         };
       }
     };
 
-    // Inicializar medios locales
+    // Initialize local media
     function initMedia(){
       navigator.mediaDevices.getUserMedia({ video:true, audio:true })
         .then(stream => {
           stream.getTracks().forEach(t => pc.addTrack(t, stream));
           localVideo.srcObject = stream;
           audioTrack = stream.getAudioTracks()[0];
-          // Crear canal MIDI
+          // Create MIDI channel
           midiChannel = pc.createDataChannel('midi'); setupMidiChannel(midiChannel);
-          // Oferta
+          // Create offer
           pc.createOffer().then(o=>pc.setLocalDescription(o)).then(()=>{
             ws.send(JSON.stringify({ type:'signal', offer:pc.localDescription }));
           });
@@ -123,7 +145,7 @@
       ch.onopen = () => {};
       ch.onmessage = ({ data }) => {
         // Mute mic on incoming MIDI
-        if(audioTrack){ audioTrack.enabled=false; clearTimeout(muteTimeout); muteTimeout=setTimeout(()=>audioTrack.enabled=true,300); }
+        if(audioTrack){ audioTrack.enabled = false; clearTimeout(muteTimeout); muteTimeout = setTimeout(()=>audioTrack.enabled=true,300); }
         handleMidiMessage(JSON.parse(data));
       };
     }
@@ -133,78 +155,66 @@
       const div = document.createElement('div');
       div.innerHTML = `<small>[${new Date().toLocaleTimeString()}]</small> <strong>${user}:</strong> ${text}`;
       if(user===username) div.classList.add('chat-propio');
-      chatLog.appendChild(div);
-      chatLog.scrollTop = chatLog.scrollHeight;
+      chatLog.appendChild(div); chatLog.scrollTop = chatLog.scrollHeight;
     }
-    sendChatBtn.addEventListener('click', ()=>{
+    sendChatBtn.onclick = ()=>{
       const t = chatInput.value.trim();
       if(t && ws.readyState===WebSocket.OPEN){
-        ws.send(JSON.stringify({ type:'chat', user:username, text:t }));
-        chatInput.value = '';
+        ws.send(JSON.stringify({ type:'chat', user:username, text:t })); chatInput.value='';
       }
-    });
-    chatInput.addEventListener('keydown', e=>{ if(e.key==='Enter') sendChatBtn.click(); });
+    };
 
-    // Modo MIDI físico
+    // MIDI physical mode
     function modoMIDI(){
       statusEl.textContent = 'Buscando dispositivos MIDI...';
       navigator.requestMIDIAccess().then(ma => {
-        midiSelectContainer.innerHTML = '';
-        const sel = document.createElement('select');
-        sel.innerHTML = '<option>--Salida MIDI--</option>';
+        midiSelectContainer.innerHTML='';
+        const sel = document.createElement('select'); sel.innerHTML='<option>--Salida MIDI--</option>';
         Array.from(ma.outputs.values()).forEach(o=> sel.innerHTML+=`<option value="${o.id}">${o.name}</option>`);
-        sel.onchange = () => {
-          output = ma.outputs.get(sel.value);
+        sel.onchange=()=>{
+          output=ma.outputs.get(sel.value);
           statusEl.textContent=`Salida MIDI: ${output.name}`;
-          // Captura entrada MIDI
-          Array.from(ma.inputs.values()).forEach(inp=>{
-            inp.onmidimessage = evt => {
-              // Mute local mic on send MIDI
-              if(audioTrack){ audioTrack.enabled=false; clearTimeout(muteTimeout); muteTimeout=setTimeout(()=>audioTrack.enabled=true,300); }
-              if(midiChannel && midiChannel.readyState==='open') midiChannel.send(JSON.stringify({ data:Array.from(evt.data), time:performance.now() }));
-            };
-          });
         };
         sel.value = Array.from(ma.outputs.keys())[0]; sel.dispatchEvent(new Event('change'));
         midiSelectContainer.appendChild(sel);
+        // MIDI input
+        Array.from(ma.inputs.values()).forEach(inp=>{
+          inp.onmidimessage=evt=>{
+            // Mute local mic on send MIDI
+            if(audioTrack){ audioTrack.enabled=false; clearTimeout(muteTimeout); muteTimeout=setTimeout(()=>audioTrack.enabled=true,300); }
+            if(midiChannel && midiChannel.readyState==='open') midiChannel.send(JSON.stringify({ data:Array.from(evt.data), time:performance.now() }));
+          };
+        });
       }).catch(e=>{ console.error(e); statusEl.textContent='No se pudo acceder a MIDI.'; });
     }
 
-    // Modo piano virtual
+    // Virtual piano mode
     async function modoVirtual(){
-      statusEl.textContent = 'Cargando piano virtual...';
-      pedal=false; notasActivas.clear(); notasSostenidas.clear();
+      statusEl.textContent='Cargando piano virtual...'; pedal=false; notasActivas.clear(); notasSostenidas.clear();
       await Tone.start();
-      synth = new Tone.Sampler({
+      synth=new Tone.Sampler({
         urls:{ A0:'A0.mp3',C1:'C1.mp3','D#1':'Ds1.mp3','F#1':'Fs1.mp3',
-               A1:'A1.mp3',C2:'C2.mp3','D#2':'Ds2.mp3','F#2':'Fs2.mp3',
+               A1:'A1.mp3',C2:'C2.mp3','D#2':'Ds2.mp3','F#2':'Fs2.pm3',
                A2:'A2.mp3',C3:'C3.mp3','D#3':'Ds3.mp3','F#3':'Fs3.mp3',
                A3:'A3.mp3',C4:'C4.mp3','D#4':'Ds4.mp3','F#4':'Fs4.mp3',
                A4:'A4.mp3',C5:'C5.mp3','D#5':'Ds5.mp3','F#5':'Fs5.mp3',
                A5:'A5.mp3',C6:'C6.mp3','D#6':'Ds6.mp3','F#6':'Fs6.mp3',
                A7:'A7.mp3',C8:'C8.mp3' },
-        baseUrl:'https://tonejs.github.io/audio/salamander/', release:0.4,
+        baseUrl:'https://tonejs.github.io/audio/salamander/',release:0.4,
         onload:()=>{ statusEl.textContent='Piano virtual listo.'; }
       }).toDestination();
     }
 
-    // Reproducción MIDI entrante
+    // Handle incoming MIDI
     function handleMidiMessage(msg){
-      const [st,note,vel] = msg.data;
-      const cmd = st & 0xf0;
-      // MIDI físico
+      const [st,note,vel]=msg.data; const cmd=st&0xf0;
       if(output) output.send(new Uint8Array(msg.data));
-      // Virtual playback
-      if(synth){
-        const time = Tone.now(); const freq = Tone.Frequency(note,'midi').toFrequency();
-        if(cmd===0x90 && vel>0){ const vn=vel/127, vs=Math.pow(vn,2);
-          synth.triggerAttack(freq,time,vs); notasActivas.add(freq); notasSostenidas.delete(freq);
+      if(synth){ const time=Tone.now(), freq=Tone.Frequency(note,'midi').toFrequency();
+        if(cmd===0x90&&vel>0){ synth.triggerAttack(freq,time,Math.pow(vel/127,2)); notasActivas.add(freq); notasSostenidas.delete(freq);
         } else if(cmd===0x80||(cmd===0x90&&vel===0)){
           if(pedal){ notasActivas.delete(freq); notasSostenidas.add(freq);
           } else { synth.triggerRelease(freq,time); notasActivas.delete(freq); notasSostenidas.delete(freq); }
-        } else if(st===176&&note===64){ pedal=vel>=64;
-          if(!pedal) notasSostenidas.forEach(f=>{ if(!notasActivas.has(f)){ synth.triggerRelease(f,Tone.now()); notasSostenidas.delete(f);} });
-        }
+        } else if(st===176&&note===64){ pedal=vel>=64; if(!pedal) notasSostenidas.forEach(f=>{ if(!notasActivas.has(f)){ synth.triggerRelease(f,Tone.now()); notasSostenidas.delete(f);} }); }
       }
     }
   </script>
