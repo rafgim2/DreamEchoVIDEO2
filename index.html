@@ -6,32 +6,9 @@
   <style>
     html, body { height:100%; margin:0; font-family:sans-serif; background-color:#f5f5f5; }
     body { display:flex; justify-content:center; align-items:center; text-align:center; }
-    .container { max-width:700px; width:95%; padding:2em; background:white; border-radius:1em; border:3px solid orange; box-shadow:0 0 20px rgba(0,0,0,0.1); }
+    .container { max-width:600px; width:90%; padding:2em; background:white; border-radius:1em; border:3px solid orange; box-shadow:0 0 20px rgba(0,0,0,0.1); }
     h1 { font-size:3em; margin-bottom:.2em; }
-    .video-container {
-      display: flex;
-      gap: 1em;
-      justify-content: center;
-      flex-wrap: wrap;
-      margin-bottom: 1em;
-    }
-    .video-block {
-      flex: 1 1 45%;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-    }
-    .video-block video {
-      width: 100%;
-      max-height: 250px;
-      background: black;
-      border-radius: 0.5em;
-    }
-    .video-label {
-      margin-top: 0.3em;
-      font-weight: bold;
-      color: #333;
-    }
+    video { width:100%; max-height:300px; border-radius:.5em; margin-bottom:1em; background:black; }
     .byline { margin-bottom:.8em; font-size:.9em; }
     .byline a { color:#333; text-decoration:none; }
     .byline a:hover { text-decoration:underline; }
@@ -42,28 +19,13 @@
     #midiLabel { font-size:1em; margin-right:.5em; }
     #midiSelect { margin:1em 0; padding:.5em; font-size:1em; }
     .msg-artista { color:blue; }
-    #talkBtn { padding: 0.6em 1.5em; font-size: 1em; margin-top: 1em; background-color: #ff9933; border: none; border-radius: 0.5em; color: white; cursor: pointer; }
-    #talkBtn:active { background-color: #cc7a00; }
   </style>
 </head>
 <body>
   <div class="container">
     <h1>DreamEcho - Artista</h1>
     <p class="byline"><a href="https://www.youtube.com/@rafgim" target="_blank" rel="noopener">© By Rafael Gimeno</a></p>
-
-    <div class="video-container">
-      <div class="video-block">
-        <video id="localVideo" autoplay muted playsinline></video>
-        <p class="video-label">Tú</p>
-      </div>
-      <div class="video-block">
-        <video id="remoteVideo" autoplay playsinline></video>
-        <p class="video-label">Oyente</p>
-      </div>
-    </div>
-
-    <button id="talkBtn">🎙️ Mantener para hablar</button>
-
+    <video id="localVideo" autoplay muted playsinline></video>
     <p id="estado">Conectando...</p>
     <p id="oyentes">Oyentes conectados: --</p>
 
@@ -72,6 +34,7 @@
   </div>
 
   <script>
+    // Elementos del DOM
     const estadoEl = document.getElementById('estado');
     const oyentesEl = document.getElementById('oyentes');
     const chatLog = document.getElementById('chatLog');
@@ -80,10 +43,10 @@
     const midiControles = document.getElementById('midiControles');
     const midiSelect = document.getElementById('midiSelect');
     const localVideo = document.getElementById('localVideo');
-    const remoteVideo = document.getElementById('remoteVideo');
-    const talkBtn = document.getElementById('talkBtn');
 
+    // WebSocket para señalización y chat
     const ws = new WebSocket('wss://dreamecho.onrender.com');
+    // PeerConnection para WebRTC
     const pc = new RTCPeerConnection({ iceServers:[{ urls:'stun:stun.l.google.com:19302' }] });
 
     let midiChannel = null;
@@ -92,27 +55,28 @@
     let prevClients = 0;
     const username = prompt('¿Cómo quieres que te vean en el chat?', 'Artista') || 'Artista';
 
-    let pressingTalk = false;
-    let remoteSpeaking = false;
-    let audioTrack = null;
-
+    // Enviar señalización por WS
     function sendSignal(data) {
+      console.log('Enviando señal:', data);
       ws.send(JSON.stringify({ type: 'signal', ...data }));
     }
 
+    // Manejo de mensajes WS
     ws.onopen = () => {
       estadoEl.innerText = 'Conectado. Iniciando WebRTC...';
       startWebRTC();
     };
-
     ws.onmessage = async ({ data }) => {
       const raw = typeof data === 'string' ? data : await data.text();
       const msg = JSON.parse(raw);
+      console.log('WS recibido:', msg);
 
       if (msg.type === 'stats') {
         const clients = msg.clients;
         oyentesEl.innerText = `Oyentes conectados: ${clients}`;
+        // Si hay más oyentes (no el primer mensaje), renegociamos
         if (prevClients > 0 && clients > prevClients) {
+          console.log('Nuevo oyente detectado, renegociando...');
           startWebRTC();
         }
         prevClients = clients;
@@ -122,84 +86,64 @@
         appendChat(msg.user, msg.text);
         return;
       }
-      if (msg.type === 'talk') {
-        remoteSpeaking = msg.speaking;
-        updateMicState();
-        return;
-      }
       if (msg.type === 'signal') {
+        // Señalización WebRTC
         if (msg.offer) {
+          console.log('Recibida oferta, respondiendo...');
           await pc.setRemoteDescription(new RTCSessionDescription(msg.offer));
           const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
           sendSignal({ answer: pc.localDescription });
         }
         if (msg.answer) {
+          console.log('Recibida respuesta, aplicando SDP...');
           await pc.setRemoteDescription(new RTCSessionDescription(msg.answer));
         }
         if (msg.candidate) {
+          console.log('Recibido candidato ICE, añadiendo...');
           await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
         }
       }
     };
+    ws.onerror = err => {
+      console.error('WS error:', err);
+      estadoEl.innerText = 'Error en la conexión.';
+    };
+    ws.onclose = () => {
+      console.warn('WS cerrado');
+      estadoEl.innerText = 'Conexión cerrada.';
+    };
 
-    ws.onerror = err => estadoEl.innerText = 'Error en la conexión.';
-    ws.onclose = () => estadoEl.innerText = 'Conexión cerrada.';
-
+    // ICE: enviar candidatos
     pc.onicecandidate = ({ candidate }) => {
       if (candidate) sendSignal({ candidate });
     };
 
-    pc.ontrack = ({ streams }) => {
-      if (remoteVideo.srcObject !== streams[0]) {
-        remoteVideo.srcObject = streams[0];
-      }
-    };
-
+    // Captura de vídeo y negociación
     async function startWebRTC() {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-        stream.getTracks().forEach(track => {
-          pc.addTrack(track, stream);
-          if (track.kind === 'audio') audioTrack = track;
-        });
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        stream.getTracks().forEach(track => pc.addTrack(track, stream));
         localVideo.srcObject = stream;
-
+        // Canal MIDI sobre WebRTC
         if (!midiChannel || midiChannel.readyState === 'closed') {
           midiChannel = pc.createDataChannel('midi');
           midiChannel.onopen = () => {
+            console.log('Canal MIDI WebRTC abierto');
             estadoEl.innerText += ' | Canal MIDI listo';
           };
         }
-
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
+        console.log('Enviando oferta WebRTC');
         sendSignal({ offer: pc.localDescription });
       } catch (err) {
+        console.error('Error WebRTC:', err);
         estadoEl.innerText = 'Error al iniciar WebRTC.';
       }
     }
 
-    function updateMicState() {
-      if (!audioTrack) return;
-      audioTrack.enabled = pressingTalk && !remoteSpeaking;
-    }
-
-    function pressTalk() {
-      pressingTalk = true;
-      ws.send(JSON.stringify({ type: 'talk', speaking: true }));
-      updateMicState();
-    }
-
-    function releaseTalk() {
-      pressingTalk = false;
-      ws.send(JSON.stringify({ type: 'talk', speaking: false }));
-      updateMicState();
-    }
-
-    ['mousedown', 'touchstart'].forEach(e => talkBtn.addEventListener(e, pressTalk));
-    ['mouseup', 'mouseleave', 'touchend', 'touchcancel'].forEach(e => talkBtn.addEventListener(e, releaseTalk));
-
+    // Chat
     function appendChat(user, text) {
       const msgEl = document.createElement('div');
       const time = new Date().toLocaleTimeString();
@@ -208,17 +152,16 @@
       chatLog.appendChild(msgEl);
       chatLog.scrollTop = chatLog.scrollHeight;
     }
-
     function sendChat() {
       const text = chatInput.value.trim();
       if (!text || ws.readyState !== WebSocket.OPEN) return;
       ws.send(JSON.stringify({ type: 'chat', user: username, text }));
       chatInput.value = '';
     }
-
     sendChatBtn.addEventListener('click', sendChat);
     chatInput.addEventListener('keydown', e => { if (e.key === 'Enter') sendChat(); });
 
+    // MIDI local
     navigator.requestMIDIAccess().then(midiAccess => {
       const inputs = midiAccess.inputs;
       if (inputs.size === 0) {
