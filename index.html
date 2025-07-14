@@ -15,12 +15,11 @@
     .video-label{margin-top:0.3em;font-weight:bold;color:#333;}
     #talkBtn{padding:.8em 2em;font-size:1.1em;margin:.5em 0;border:none;border-radius:.7em;background:#ff9800;color:#fff;cursor:pointer;}
     #talkBtn:active{transform:scale(.96);}
+    .midi-section{margin:1em 0;}
     #chatLog{height:150px;overflow-y:auto;border:1px solid #ccc;padding:.5em;margin-bottom:.5em;text-align:left;background:#fafafa;border-radius:.5em;}
     #chatInput{width:70%;padding:.5em;font-size:1em;}
     #sendChatBtn{padding:.6em 1em;font-size:1em;cursor:pointer;margin-left:.5em;}
     .msg-artista{color:blue;}
-    #midiSelectContainer select {margin-top:1em; padding:0.5em; font-size:1em;}
-    #modoBtns button{margin:0.3em 0.7em;}
   </style>
 </head>
 <body>
@@ -40,13 +39,18 @@
     </div>
 
     <button id="talkBtn">📢 Mantén pulsado para hablar</button>
-
-    <div id="modoBtns">
-      <button onclick="modoMIDI()">🎹 Usar mi piano digital</button>
-      <button onclick="modoVirtual()">🎧 Escuchar con sonido virtual</button>
+    <div class="midi-section">
+      <h3>MIDI recibido (del oyente):</h3>
+      <button id="midiOutBtn">🎹 Usar mi piano digital</button>
+      <button id="virtualBtn">🎧 Usar sonido virtual</button>
+      <div id="midiOutSelectCont"></div>
+      <div id="midiStatus"></div>
     </div>
-    <div id="midiSelectContainer"></div>
-
+    <div class="midi-section">
+      <h3>MIDI a enviar (tu piano):</h3>
+      <div id="midiInSelectCont"></div>
+      <div id="midiSendStatus"></div>
+    </div>
     <p id="estado">Conectando...</p>
     <p id="oyentes">Oyentes conectados: --</p>
 
@@ -58,6 +62,7 @@
   </div>
 
   <script>
+    // ----------- Elementos DOM
     const estadoEl = document.getElementById('estado');
     const oyentesEl = document.getElementById('oyentes');
     const chatLog   = document.getElementById('chatLog');
@@ -66,144 +71,31 @@
     const localVideo = document.getElementById('localVideo');
     const remoteVideo = document.getElementById('remoteVideo');
     const talkBtn = document.getElementById('talkBtn');
-    const midiSelectContainer = document.getElementById('midiSelectContainer');
+    const midiOutBtn = document.getElementById('midiOutBtn');
+    const virtualBtn = document.getElementById('virtualBtn');
+    const midiOutSelectCont = document.getElementById('midiOutSelectCont');
+    const midiStatus = document.getElementById('midiStatus');
+    const midiInSelectCont = document.getElementById('midiInSelectCont');
+    const midiSendStatus = document.getElementById('midiSendStatus');
 
+    // ----------- Estado MIDI y WebRTC
     const ws = new WebSocket('wss://dreamecho.onrender.com');
     const pc = new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'}]});
-
     const username = prompt('¿Cómo quieres que te vean en el chat?','Artista')||'Artista';
 
-    // --- WALKIE-TALKIE ---
-    let localStream = null;
-    let realAudioTrack = null;
-    let silentAudioTrack = null;
-    let audioSender = null;
-    let pressingTalk = false;
-    let remoteSpeaking = false;
+    // Walkie-talkie audio muting
+    let localStream=null, realAudioTrack=null, silentAudioTrack=null, audioSender=null, pressingTalk=false, remoteSpeaking=false;
 
-    // --- MIDI bidireccional ---
-    let midiChannelOut = null;    // DataChannel "midi-artista": envía desde el artista
-    let midiChannelIn  = null;    // DataChannel "midi-oyente": recibe desde el oyente
-    let midiAccess = null;
-    let midiOutput = null;
-    let sampler = null;
-    let pedal = false;
-    const notasActivas = new Set();
-    const notasSostenidas = new Set();
-    let modo = "ninguno"; // "midi" o "virtual"
-    let hasInitializedMedia = false;
+    // MIDI vars
+    let midiAccess=null;
+    let midiInputs=[], midiOutputs=[];
+    let midiOutDevice=null;    // Donde suena el MIDI recibido (null=virtual)
+    let midiInDevice=null;     // El MIDI IN físico para enviar (si existe)
+    let midiChannel = null;    // RTCDataChannel para MIDI bidireccional
+    let synth = null;          // Tone.Sampler para sonido virtual
+    let useVirtual = true;     // Por defecto, sonido virtual
 
-    // --- MIDI OUTPUT/INPUT LOGIC ---
-    function modoMIDI() {
-      modo = "midi";
-      midiSelectContainer.innerHTML = "Buscando dispositivos MIDI…";
-      navigator.requestMIDIAccess().then(ma => {
-        midiAccess = ma;
-        const outputs = Array.from(ma.outputs.values());
-        if (!outputs.length) {
-          midiSelectContainer.innerHTML = 'No hay dispositivos MIDI.';
-          midiOutput = null;
-          return;
-        }
-        midiSelectContainer.innerHTML = '';
-        const sel = document.createElement('select');
-        sel.innerHTML = '<option value="">-- Elige salida MIDI --</option>';
-        outputs.forEach(o => sel.innerHTML += `<option value="${o.id}">${o.name}</option>`);
-        sel.onchange = () => {
-          midiOutput = ma.outputs.get(sel.value);
-          estadoEl.textContent = `Salida MIDI: ${midiOutput ? midiOutput.name : "ninguna"}`;
-        };
-        sel.value = outputs[0].id;
-        sel.dispatchEvent(new Event('change'));
-        midiSelectContainer.appendChild(sel);
-      }).catch(() => {
-        midiSelectContainer.innerHTML = 'No se pudo acceder a MIDI.';
-      });
-    }
-    async function modoVirtual() {
-      modo = "virtual";
-      midiOutput = null;
-      midiSelectContainer.innerHTML = '';
-      pedal = false; notasActivas.clear(); notasSostenidas.clear();
-      await Tone.start();
-      sampler = new Tone.Sampler({
-        urls: {
-          A0: 'A0.mp3', C1: 'C1.mp3', 'D#1': 'Ds1.mp3', 'F#1': 'Fs1.mp3',
-          A1: 'A1.mp3', C2: 'C2.mp3', 'D#2': 'Ds2.mp3', 'F#2': 'Fs2.mp3',
-          A2: 'A2.mp3', C3: 'C3.mp3', 'D#3': 'Ds3.mp3', 'F#3': 'Fs3.mp3',
-          A3: 'A3.mp3', C4: 'C4.mp3', 'D#4': 'Ds4.mp3', 'F#4': 'Fs4.mp3',
-          A4: 'A4.mp3', C5: 'C5.mp3', 'D#5': 'Ds5.mp3', 'F#5': 'Fs5.mp3',
-          A5: 'A5.mp3', C6: 'C6.mp3', 'D#6': 'Ds6.mp3', 'F#6': 'Fs6.mp3',
-          A7: 'A7.mp3', C8: 'C8.mp3'
-        },
-        baseUrl: 'https://tonejs.github.io/audio/salamander/',
-        release: 0.4,
-        onload: () => { estadoEl.textContent = 'Modo virtual listo.'; }
-      }).toDestination();
-      estadoEl.textContent = 'Cargando piano virtual…';
-    }
-
-    // --- MIDI OUT: reproduce msg MIDI recibido (virtual o físico) ---
-    function playMidiMessage(msg) {
-      const [st, note, vel] = msg.data;
-      const cmd = st & 0xf0;
-      if (modo === "midi" && midiOutput) {
-        midiOutput.send(new Uint8Array(msg.data));
-      }
-      if (modo === "virtual" && sampler) {
-        const freq = Tone.Frequency(note, 'midi').toFrequency();
-        if (cmd === 0x90 && vel > 0) {
-          const velNorm = vel / 127;
-          const velScaled = Math.pow(velNorm, 2);
-          sampler.triggerAttack(freq, Tone.now(), velScaled);
-          notasActivas.add(freq);
-          notasSostenidas.delete(freq);
-        } else if (cmd === 0x80 || (cmd === 0x90 && vel === 0)) {
-          if (pedal) {
-            notasActivas.delete(freq);
-            notasSostenidas.add(freq);
-          } else {
-            sampler.triggerRelease(freq, Tone.now());
-            notasActivas.delete(freq);
-            notasSostenidas.delete(freq);
-          }
-        } else if (st === 176 && note === 64) {
-          pedal = vel >= 64;
-          if (!pedal) {
-            notasSostenidas.forEach(f => {
-              if (!notasActivas.has(f)) {
-                sampler.triggerRelease(f, Tone.now());
-                notasSostenidas.delete(f);
-              }
-            });
-          }
-        }
-      }
-    }
-
-    // --- MIDI IN: envía MIDI tocado localmente al oyente ---
-    function sendMidiMessage(data) {
-      if (midiChannelOut && midiChannelOut.readyState === "open") {
-        midiChannelOut.send(JSON.stringify({ data: Array.from(data) }));
-      }
-    }
-
-    // --- MIDI DETECTION Y ENVÍO ---
-    function listenMidiInput() {
-      if (!midiAccess) return;
-      const inputs = Array.from(midiAccess.inputs.values());
-      if (!inputs.length) return;
-      inputs.forEach(input => {
-        input.onmidimessage = ({ data }) => {
-          sendMidiMessage(data);
-          // Además, sonido local en el modo seleccionado
-          playMidiMessage({ data });
-        };
-      });
-      estadoEl.textContent = `Escuchando entrada MIDI: ${inputs.map(i=>i.name).join(", ")}`;
-    }
-
-    // --- WALKIE-TALKIE "MUTE REAL" ---
+    // ---- Walkie-talkie y WebRTC
     function createSilentAudioTrack() {
       const ctx = new (window.AudioContext || window.webkitAudioContext)();
       const oscillator = ctx.createOscillator();
@@ -213,6 +105,30 @@
       oscillator.start();
       setTimeout(()=>oscillator.stop(), 100);
       return dst.stream.getAudioTracks()[0];
+    }
+    async function startWebRTC(){
+      try{
+        localStream = await navigator.mediaDevices.getUserMedia({video:true,audio:true});
+        realAudioTrack = localStream.getAudioTracks()[0];
+        silentAudioTrack = createSilentAudioTrack();
+        localVideo.srcObject = localStream;
+        localStream.getTracks().forEach(t=>{
+          let sender = pc.addTrack(t, localStream);
+          if(t.kind==='audio') audioSender = sender;
+        });
+        if(audioSender && audioSender.track !== silentAudioTrack)
+          audioSender.replaceTrack(silentAudioTrack);
+
+        if(!midiChannel || midiChannel.readyState==='closed'){
+          midiChannel = pc.createDataChannel('midi', {ordered:true});
+          midiChannel.onmessage = ({data}) => handleMidiMessage(JSON.parse(data), 'oyente');
+        }
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        sendSignal({offer:pc.localDescription});
+      }catch(err){
+        console.error(err);estadoEl.innerText='Error al iniciar WebRTC.';
+      }
     }
     function updateMicState() {
       if (!audioSender) return;
@@ -226,72 +142,122 @@
       }
     }
     function pressTalk(){
-      pressingTalk=true;
-      ws.send(JSON.stringify({type:'talk',speaking:true}));
-      updateMicState();
+      pressingTalk=true; ws.send(JSON.stringify({type:'talk',speaking:true})); updateMicState();
     }
     function releaseTalk(){
-      pressingTalk=false;
-      ws.send(JSON.stringify({type:'talk',speaking:false}));
-      updateMicState();
+      pressingTalk=false; ws.send(JSON.stringify({type:'talk',speaking:false})); updateMicState();
     }
     ['mousedown','touchstart'].forEach(e=>talkBtn.addEventListener(e,pressTalk));
     ['mouseup','mouseleave','touchend','touchcancel'].forEach(e=>talkBtn.addEventListener(e,releaseTalk));
 
-    // --- WEBRTC: inicialización ---
-    let audioSender = null;
-
-    async function initMediaAndWebRTC() {
-      if (hasInitializedMedia) return; // SOLO una vez
-      hasInitializedMedia = true;
+    // ----------- MIDI IN/OUT VIRTUAL/FÍSICO
+    async function setupMIDI() {
       try {
-        localStream = await navigator.mediaDevices.getUserMedia({video:true,audio:true});
-        realAudioTrack = localStream.getAudioTracks()[0];
-        silentAudioTrack = createSilentAudioTrack();
-        localVideo.srcObject = localStream;
-        localStream.getTracks().forEach(t=>{
-          let sender = pc.addTrack(t, localStream);
-          if(t.kind==='audio') audioSender = sender;
-        });
-        // Empieza muteado
-        if(audioSender && audioSender.track !== silentAudioTrack)
-          audioSender.replaceTrack(silentAudioTrack);
-      } catch(err) {
-        estadoEl.innerText='Error al iniciar cámara/micrófono.';
-        console.error(err);
+        midiAccess = await navigator.requestMIDIAccess();
+        midiInputs = Array.from(midiAccess.inputs.values());
+        midiOutputs = Array.from(midiAccess.outputs.values());
+        // Salida MIDI (OUT) física
+        midiOutSelectCont.innerHTML = '';
+        if(midiOutputs.length) {
+          let sel = document.createElement('select');
+          sel.innerHTML = '<option value="">-- Elegir salida MIDI --</option>';
+          midiOutputs.forEach((o,i) => sel.innerHTML += `<option value="${i}">${o.name}</option>`);
+          sel.onchange = () => {
+            midiOutDevice = sel.value ? midiOutputs[+sel.value] : null;
+            midiStatus.textContent = midiOutDevice ? `MIDI OUT: ${midiOutDevice.name}` : 'Usando sonido virtual';
+            useVirtual = !midiOutDevice;
+          };
+          midiOutSelectCont.appendChild(sel);
+        } else {
+          midiOutSelectCont.textContent = '(No hay salidas MIDI físicas conectadas)';
+        }
+        // Entrada MIDI (IN) física
+        midiInSelectCont.innerHTML = '';
+        if(midiInputs.length) {
+          let sel = document.createElement('select');
+          sel.innerHTML = '<option value="">-- Elegir entrada MIDI --</option>';
+          midiInputs.forEach((i,k) => sel.innerHTML += `<option value="${k}">${i.name}</option>`);
+          sel.onchange = () => {
+            if(midiInDevice) midiInDevice.onmidimessage = null;
+            midiInDevice = sel.value ? midiInputs[+sel.value] : null;
+            if(midiInDevice) {
+              midiInDevice.onmidimessage = ({data}) => {
+                // Enviar por el canal MIDI al otro lado
+                if(midiChannel && midiChannel.readyState==='open')
+                  midiChannel.send(JSON.stringify({data:Array.from(data), from:'artista'}));
+              };
+              midiSendStatus.textContent = `Enviando MIDI desde: ${midiInDevice.name}`;
+            } else {
+              midiSendStatus.textContent = '';
+            }
+          };
+          midiInSelectCont.appendChild(sel);
+        } else {
+          midiInSelectCont.textContent = '(No hay entradas MIDI físicas conectadas)';
+        }
+      } catch (e) {
+        midiStatus.textContent = 'No se pudo acceder a MIDI.';
       }
     }
 
-    // --- SOLO se negocia la conexión, no se reinicia getUserMedia ---
-    async function negotiateWebRTC() {
-      // --- MIDI DataChannel "midi-artista" para enviar (abierto por artista) ---
-      midiChannelOut = pc.createDataChannel("midi-artista");
-      midiChannelOut.onopen = () => {
-        estadoEl.textContent += " | Canal MIDI listo";
-        listenMidiInput();
-      };
+    // Botones para cambiar entre salida virtual y física
+    midiOutBtn.onclick = () => {
+      useVirtual = false;
+      midiStatus.textContent = midiOutDevice ? `MIDI OUT: ${midiOutDevice.name}` : '(Conecta un piano digital)';
+    };
+    virtualBtn.onclick = () => {
+      useVirtual = true;
+      midiStatus.textContent = 'Usando sonido virtual';
+    };
 
-      // El canal para recibir MIDI del oyente se crea en ondatachannel
-      // (ver más abajo)
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      sendSignal({offer:pc.localDescription});
+    // ----------- Sonido virtual (Tone.js Sampler)
+    async function setupSampler() {
+      if (synth) return;
+      await Tone.start();
+      synth = new Tone.Sampler({
+        urls: {
+          A0: 'A0.mp3', C1: 'C1.mp3', 'D#1': 'Ds1.mp3', 'F#1': 'Fs1.mp3',
+          A1: 'A1.mp3', C2: 'C2.mp3', 'D#2': 'Ds2.mp3', 'F#2': 'Fs2.mp3',
+          A2: 'A2.mp3', C3: 'C3.mp3', 'D#3': 'Ds3.mp3', 'F#3': 'Fs3.mp3',
+          A3: 'A3.mp3', C4: 'C4.mp3', 'D#4': 'Ds4.mp3', 'F#4': 'Fs4.mp3',
+          A4: 'A4.mp3', C5: 'C5.mp3', 'D#5': 'Ds5.mp3', 'F#5': 'Fs5.mp3',
+          A5: 'A5.mp3', C6: 'C6.mp3', 'D#6': 'Ds6.mp3', 'F#6': 'Fs6.mp3',
+          A7: 'A7.mp3', C8: 'C8.mp3'
+        },
+        baseUrl: 'https://tonejs.github.io/audio/salamander/',
+        release: 0.4,
+        onload: () => midiStatus.textContent = 'Sonido virtual listo'
+      }).toDestination();
     }
 
-    function sendSignal(d){ws.send(JSON.stringify({type:'signal',...d}));}
+    // ----------- Recibir MIDI del otro lado (del oyente)
+    function handleMidiMessage(msg, origen) {
+      const [st, note, vel] = msg.data;
+      const cmd = st & 0xf0;
+      if (!useVirtual && midiOutDevice) {
+        midiOutDevice.send(new Uint8Array(msg.data));
+      } else {
+        if (!synth) return;
+        const freq = Tone.Frequency(note, 'midi').toFrequency();
+        if (cmd === 0x90 && vel > 0) {
+          const velNorm = vel / 127;
+          const velScaled = Math.pow(velNorm, 2);
+          synth.triggerAttack(freq, Tone.now(), velScaled);
+        } else if (cmd === 0x80 || (cmd === 0x90 && vel === 0)) {
+          synth.triggerRelease(freq, Tone.now());
+        }
+      }
+    }
 
-    ws.onopen = async ()=>{
-      estadoEl.innerText='Conectado. Iniciando WebRTC...';
-      await initMediaAndWebRTC();
-      await negotiateWebRTC();
-    };
+    // ----------- Señalización WebSocket
+    function sendSignal(d){ws.send(JSON.stringify({type:'signal',...d}));}
+    ws.onopen = ()=>{estadoEl.innerText='Conectado. Iniciando WebRTC...';startWebRTC();setupMIDI();setupSampler();};
     ws.onmessage = async ({data})=>{
       const msg = JSON.parse(typeof data==='string'?data:await data.text());
       if(msg.type==='stats'){
         oyentesEl.innerText=`Oyentes conectados: ${msg.clients}`;
-        // Si hay un nuevo oyente, SOLO renegocia la offer
-        if(msg.clients>1) negotiateWebRTC();
-        return;
+        if(prevClients>0&&msg.clients>prevClients) startWebRTC();
+        prevClients=msg.clients; return;
       }
       if(msg.type==='chat'){appendChat(msg.user,msg.text);return;}
       if(msg.type==='talk'){ remoteSpeaking = msg.speaking; updateMicState(); return; }
@@ -309,26 +275,19 @@
     ws.onerror = ()=>estadoEl.innerText='Error en la conexión.';
     ws.onclose = ()=>estadoEl.innerText='Conexión cerrada.';
 
+    // --- WebRTC: recibir canal MIDI del oyente ---
     pc.onicecandidate = ({candidate})=>{if(candidate) sendSignal({candidate});};
     pc.ontrack = ({streams})=>{
       if(remoteVideo.srcObject!==streams[0]) remoteVideo.srcObject = streams[0];
     };
-
-    // --- DataChannel MIDI bidireccional ---
     pc.ondatachannel = ev => {
-      // Esperamos canal "midi-oyente" creado por el oyente
-      if(ev.channel.label === "midi-oyente") {
-        midiChannelIn = ev.channel;
-        midiChannelIn.onmessage = ({data}) => {
-          try {
-            const msg = JSON.parse(data);
-            if (msg.data) playMidiMessage(msg);
-          } catch (e) { /* ignorar */ }
-        };
+      if (ev.channel.label === 'midi') {
+        // Llega un canal MIDI abierto desde el oyente
+        ev.channel.onmessage = ({data}) => handleMidiMessage(JSON.parse(data), 'oyente');
       }
     };
 
-    // --- CHAT ---
+    // --- Chat
     function appendChat(u,t){
       const e=document.createElement('div');
       e.innerHTML=`<small>[${new Date().toLocaleTimeString()}]</small> <strong>${u}:</strong> ${t}`;
@@ -341,6 +300,7 @@
     }
     sendChatBtn.addEventListener('click',sendChat);
     chatInput.addEventListener('keydown',e=>{if(e.key==='Enter')sendChat();});
+
   </script>
 </body>
 </html>
