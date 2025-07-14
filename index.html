@@ -71,18 +71,40 @@
     let midiChannel=null,activeMIDIInput=null,startTime=null,prevClients=0;
     const username = prompt('¿Cómo quieres que te vean en el chat?','Artista')||'Artista';
 
+    // --- WALKIE-TALKIE "MUTE REAL" ---
     let localStream = null;
+    let realAudioTrack = null;
+    let silentAudioTrack = null;
+    let audioSender = null;
     let pressingTalk = false;
     let remoteSpeaking = false;
 
-    // --- WALKIE-TALKIE LOGIC ---
+    // Genera un MediaStreamTrack de audio completamente silencioso
+    function createSilentAudioTrack() {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const oscillator = ctx.createOscillator();
+      oscillator.frequency.value = 0;
+      const dst = ctx.createMediaStreamDestination();
+      oscillator.connect(dst);
+      oscillator.start();
+      setTimeout(()=>oscillator.stop(), 100);
+      return dst.stream.getAudioTracks()[0];
+    }
 
     async function startWebRTC(){
       try{
         localStream = await navigator.mediaDevices.getUserMedia({video:true,audio:true});
+        realAudioTrack = localStream.getAudioTracks()[0];
+        silentAudioTrack = createSilentAudioTrack();
         localVideo.srcObject = localStream;
-        localStream.getTracks().forEach(t=>pc.addTrack(t,localStream));
-        updateMicState(); // Mute por defecto
+        localStream.getTracks().forEach(t=>{
+          let sender = pc.addTrack(t, localStream);
+          if(t.kind==='audio') audioSender = sender;
+        });
+        // Por seguridad: empieza siempre muteado (pista silenciosa)
+        if(audioSender && audioSender.track !== silentAudioTrack)
+          audioSender.replaceTrack(silentAudioTrack);
+
         if(!midiChannel || midiChannel.readyState==='closed'){
           midiChannel = pc.createDataChannel('midi');
           midiChannel.onopen = ()=>{estadoEl.innerText+=' | Canal MIDI listo';};
@@ -96,11 +118,15 @@
     }
 
     function updateMicState() {
-      if (!localStream) return;
+      if (!audioSender) return;
       const activar = pressingTalk && !remoteSpeaking;
-      localStream.getAudioTracks().forEach(track => {
-        track.enabled = activar;
-      });
+      if (activar) {
+        if (audioSender.track !== realAudioTrack)
+          audioSender.replaceTrack(realAudioTrack);
+      } else {
+        if (audioSender.track !== silentAudioTrack)
+          audioSender.replaceTrack(silentAudioTrack);
+      }
     }
 
     function pressTalk(){
