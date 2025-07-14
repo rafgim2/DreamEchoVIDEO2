@@ -77,6 +77,14 @@
     }
     .midi-section {
       margin: 1em 0;
+      text-align: left;
+    }
+    .midi-section h3 {
+      margin-bottom: .5em;
+    }
+    .midi-section .label {
+      font-weight: bold;
+      margin-bottom: .3em;
     }
     #midiStatus, #midiSendStatus {
       margin-top: .5em;
@@ -104,9 +112,9 @@
 
     <div class="midi-section">
       <h3>MIDI recibido (del oyente):</h3>
-      <button id="midiOutBtn">🎹 Usar mi piano digital</button>
-      <button id="virtualBtn">🎧 Usar sonido virtual</button>
+      <p class="label">Seleccionar piano digital</p>
       <div id="midiOutSelectCont"></div>
+      <button id="virtualBtn">🎧 Usar sonido virtual</button>
       <div id="midiStatus"></div>
     </div>
     <div class="midi-section">
@@ -126,7 +134,6 @@
     const localVideo = document.getElementById('localVideo');
     const remoteVideo = document.getElementById('remoteVideo');
     const talkBtn = document.getElementById('talkBtn');
-    const midiOutBtn = document.getElementById('midiOutBtn');
     const virtualBtn = document.getElementById('virtualBtn');
     const midiOutSelectCont = document.getElementById('midiOutSelectCont');
     const midiStatus = document.getElementById('midiStatus');
@@ -224,15 +231,17 @@
         midiInputs = Array.from(midiAccess.inputs.values());
         midiOutputs = Array.from(midiAccess.outputs.values());
 
-        // MIDI OUT select
+        // MIDI OUT select (digital piano)
         midiOutSelectCont.innerHTML = '';
         if (midiOutputs.length) {
           const sel = document.createElement('select');
-          sel.innerHTML = '<option value="">-- Elegir salida MIDI --</option>';
+          sel.innerHTML = '<option value="">-- Elige tu teclado digital --</option>';
           midiOutputs.forEach((o, i) => sel.innerHTML += `<option value="${i}">${o.name}</option>`);
           sel.onchange = () => {
             midiOutDevice = sel.value ? midiOutputs[+sel.value] : null;
-            midiStatus.textContent = midiOutDevice ? `MIDI OUT: ${midiOutDevice.name}` : 'Usando sonido virtual';
+            midiStatus.textContent = midiOutDevice
+              ? `MIDI OUT: ${midiOutDevice.name}`
+              : 'Usando sonido virtual';
             useVirtual = !midiOutDevice;
           };
           midiOutSelectCont.appendChild(sel);
@@ -244,7 +253,7 @@
         midiInSelectCont.innerHTML = '';
         if (midiInputs.length) {
           const sel = document.createElement('select');
-          sel.innerHTML = '<option value="">-- Elegir entrada MIDI --</option>';
+          sel.innerHTML = '<option value="">-- Elige entrada MIDI --</option>';
           midiInputs.forEach((i, k) => sel.innerHTML += `<option value="${k}">${i.name}</option>`);
           sel.onchange = () => {
             if (midiInDevice) midiInDevice.onmidimessage = null;
@@ -269,10 +278,6 @@
       }
     }
 
-    midiOutBtn.onclick = () => {
-      useVirtual = false;
-      midiStatus.textContent = midiOutDevice ? `MIDI OUT: ${midiOutDevice.name}` : '(Conecta un piano digital)';
-    };
     virtualBtn.onclick = async () => {
       useVirtual = true;
       midiStatus.textContent = 'Usando sonido virtual';
