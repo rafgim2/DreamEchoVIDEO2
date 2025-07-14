@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <title>DreamEcho - Artista</title>
+  <title>DreamEcho - Profesor</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.39/Tone.min.js"></script>
   <style>
     html, body {
@@ -109,7 +109,7 @@
 </head>
 <body>
   <div class="container">
-    <h1>DreamEcho - Artista</h1>
+    <h1>DreamEcho - Profesor</h1>
     <p class="byline"><a href="https://www.youtube.com/@rafgim" target="_blank" rel="noopener">© By Rafael Gimeno</a></p>
 
     <div class="video-container">
@@ -119,14 +119,14 @@
       </div>
       <div class="video-block">
         <video id="remoteVideo" autoplay playsinline></video>
-        <p class="video-label">Oyente</p>
+        <p class="video-label">Alumno</p>
       </div>
     </div>
 
     <button id="talkBtn">📢 Mantén pulsado para hablar</button>
 
     <div class="midi-section">
-      <h3>MIDI recibido (del oyente):</h3>
+      <h3>MIDI recibido (del alumno):</h3>
       <div class="midi-controls">
         <span class="label">Seleccionar piano digital</span>
         <div id="midiOutSelectCont"></div>
@@ -161,7 +161,7 @@
     // WebSocket & WebRTC setup
     const ws = new WebSocket('wss://dreamecho.onrender.com');
     const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
-    const username = prompt('¿Cómo quieres que te vean?', 'Artista') || 'Artista';
+    
 
     // Audio tracks
     let localStream = null, realAudioTrack = null, silentAudioTrack = null, audioSender = null;
