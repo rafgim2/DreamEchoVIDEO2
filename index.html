@@ -91,6 +91,7 @@
     const notasActivas = new Set();
     const notasSostenidas = new Set();
     let modo = "ninguno"; // "midi" o "virtual"
+    let hasInitializedMedia = false;
 
     // --- MIDI OUTPUT/INPUT LOGIC ---
     function modoMIDI() {
@@ -237,13 +238,13 @@
     ['mousedown','touchstart'].forEach(e=>talkBtn.addEventListener(e,pressTalk));
     ['mouseup','mouseleave','touchend','touchcancel'].forEach(e=>talkBtn.addEventListener(e,releaseTalk));
 
-    // --- WEBRTC: inicio y señalización ---
-    let realAudioTrack = null;
-    let silentAudioTrack = null;
+    // --- WEBRTC: inicialización ---
     let audioSender = null;
 
-    async function startWebRTC(){
-      try{
+    async function initMediaAndWebRTC() {
+      if (hasInitializedMedia) return; // SOLO una vez
+      hasInitializedMedia = true;
+      try {
         localStream = await navigator.mediaDevices.getUserMedia({video:true,audio:true});
         realAudioTrack = localStream.getAudioTracks()[0];
         silentAudioTrack = createSilentAudioTrack();
@@ -252,37 +253,44 @@
           let sender = pc.addTrack(t, localStream);
           if(t.kind==='audio') audioSender = sender;
         });
-        // Empieza muteado (pista silenciosa)
+        // Empieza muteado
         if(audioSender && audioSender.track !== silentAudioTrack)
           audioSender.replaceTrack(silentAudioTrack);
-
-        // --- MIDI DataChannel "midi-artista" para enviar (abierto por artista) ---
-        midiChannelOut = pc.createDataChannel("midi-artista");
-        midiChannelOut.onopen = () => {
-          estadoEl.textContent += " | Canal MIDI listo";
-          listenMidiInput();
-        };
-
-        // El canal para recibir MIDI del oyente se crea en ondatachannel
-        // (ver más abajo)
-
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        sendSignal({offer:pc.localDescription});
-      }catch(err){
-        console.error(err);estadoEl.innerText='Error al iniciar WebRTC.';
+      } catch(err) {
+        estadoEl.innerText='Error al iniciar cámara/micrófono.';
+        console.error(err);
       }
+    }
+
+    // --- SOLO se negocia la conexión, no se reinicia getUserMedia ---
+    async function negotiateWebRTC() {
+      // --- MIDI DataChannel "midi-artista" para enviar (abierto por artista) ---
+      midiChannelOut = pc.createDataChannel("midi-artista");
+      midiChannelOut.onopen = () => {
+        estadoEl.textContent += " | Canal MIDI listo";
+        listenMidiInput();
+      };
+
+      // El canal para recibir MIDI del oyente se crea en ondatachannel
+      // (ver más abajo)
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      sendSignal({offer:pc.localDescription});
     }
 
     function sendSignal(d){ws.send(JSON.stringify({type:'signal',...d}));}
 
-    ws.onopen = ()=>{estadoEl.innerText='Conectado. Iniciando WebRTC...';startWebRTC();};
+    ws.onopen = async ()=>{
+      estadoEl.innerText='Conectado. Iniciando WebRTC...';
+      await initMediaAndWebRTC();
+      await negotiateWebRTC();
+    };
     ws.onmessage = async ({data})=>{
       const msg = JSON.parse(typeof data==='string'?data:await data.text());
       if(msg.type==='stats'){
         oyentesEl.innerText=`Oyentes conectados: ${msg.clients}`;
-        // Si hay un nuevo oyente, renegociamos
-        if(msg.clients>1) startWebRTC();
+        // Si hay un nuevo oyente, SOLO renegocia la offer
+        if(msg.clients>1) negotiateWebRTC();
         return;
       }
       if(msg.type==='chat'){appendChat(msg.user,msg.text);return;}
@@ -333,9 +341,6 @@
     }
     sendChatBtn.addEventListener('click',sendChat);
     chatInput.addEventListener('keydown',e=>{if(e.key==='Enter')sendChat();});
-
-    // --- Opcional: activa modo MIDI por defecto al cargar
-    //modoMIDI();
   </script>
 </body>
 </html>
