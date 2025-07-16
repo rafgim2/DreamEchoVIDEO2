@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <title>DreamEcho - Profesor</title>
+  <title>DreamEcho - Alumno</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.39/Tone.min.js"></script>
   <style>
     html, body {
@@ -128,12 +128,12 @@
 </head>
 <body>
   <div class="container">
-    <h1>DreamEcho - Profesor</h1>
+    <h1>DreamEcho - Alumno</h1>
     <p class="byline"><a href="https://www.youtube.com/@rafgim" target="_blank" rel="noopener">© By Rafael Gimeno</a></p>
 
     <div class="pin-section">
       <input type="text" id="pinInput" placeholder="Introduce tu PIN de sala">
-      <button id="pinBtn">Crear sala</button>
+      <button id="pinBtn">Unirse</button>
     </div>
 
     <div id="mainContent" style="display:none;">
@@ -144,14 +144,14 @@
         </div>
         <div class="video-block">
           <video id="remoteVideo" autoplay playsinline></video>
-          <p class="video-label">Alumno</p>
+          <p class="video-label">Profesor</p>
         </div>
       </div>
 
       <button id="talkBtn">📢 Mantén pulsado para hablar</button>
 
       <div class="midi-section">
-        <h3>MIDI recibido (del alumno):</h3>
+        <h3>MIDI recibido (del profesor):</h3>
         <div class="midi-controls">
           <span class="label">Seleccionar piano digital</span>
           <div id="midiOutSelectCont"></div>
