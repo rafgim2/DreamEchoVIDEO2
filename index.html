@@ -349,6 +349,7 @@
         } else if (cmd === 0x80 || (cmd === 0x90 && vel === 0)) {
           synth.triggerRelease(freq, Tone.now());
         }
+      }
     }
 
     function initConnection() {
@@ -356,13 +357,9 @@
       pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
 
       pc.onnegotiationneeded = async () => {
-        try {
-          const offer = await pc.createOffer();
-          await pc.setLocalDescription(offer);
-          sendMessage({ type: 'signal', offer: pc.localDescription });
-        } catch (e) {
-          console.error('Error renegociando:', e);
-        }
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        sendMessage({ type: 'signal', offer: pc.localDescription });
       };
 
       pc.onicecandidate = ({ candidate }) => {
@@ -401,6 +398,9 @@
             if (msg.pin !== pin) return;
             if (msg.offer) {
               await pc.setRemoteDescription(new RTCSessionDescription(msg.offer));
+              const answer = await pc.createAnswer();
+              await pc.setLocalDescription(answer);
+              sendMessage({ type: 'signal', answer: pc.localDescription });
             } else if (msg.answer) {
               await pc.setRemoteDescription(new RTCSessionDescription(msg.answer));
             } else if (msg.candidate) {
