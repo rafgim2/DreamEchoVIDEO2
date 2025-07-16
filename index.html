@@ -251,11 +251,11 @@
       if (midiOutputs.length) {
         const sel = document.createElement('select');
         sel.innerHTML = '<option value="">-- Elige tu teclado digital --</option>';
-        midiOutputs.forEach((o,i)=> sel.innerHTML += <option value="${i}">${o.name}</option>);
+        midiOutputs.forEach((o,i)=> sel.innerHTML += `<option value="${i}">${o.name}</option>`);
         sel.onchange = () => {
           midiOutDevice = sel.value ? midiOutputs[+sel.value] : null;
           midiStatus.textContent = midiOutDevice
-            ? MIDI OUT: ${midiOutDevice.name}
+            ? `MIDI OUT: ${midiOutDevice.name}`
             : 'Usando sonido virtual';
           useVirtual = !midiOutDevice;
         };
@@ -269,7 +269,7 @@
       if (midiInputs.length) {
         const selIn = document.createElement('select');
         selIn.innerHTML = '<option value="">-- Elige entrada MIDI --</option>';
-        midiInputs.forEach((i,k)=> selIn.innerHTML += <option value="${k}">${i.name}</option>);
+        midiInputs.forEach((i,k)=> selIn.innerHTML += `<option value="${k}">${i.name}</option>`);
         selIn.onchange = () => {
           if (midiInDevice) midiInDevice.onmidimessage = null;
           midiInDevice = selIn.value ? midiInputs[+selIn.value] : null;
@@ -279,7 +279,7 @@
                 midiChannel.send(JSON.stringify({ data: Array.from(data) }));
               }
             };
-            midiSendStatus.textContent = Enviando MIDI desde: ${midiInDevice.name};
+            midiSendStatus.textContent = `Enviando MIDI desde: ${midiInDevice.name}`;
           } else {
             midiSendStatus.textContent = '';
           }
@@ -359,7 +359,7 @@
         const msg = JSON.parse(typeof data==='string' ? data : await data.text());
         switch (msg.type) {
           case 'stats':
-            oyentesEl.textContent = Oyentes conectados: ${msg.clients};
+            oyentesEl.textContent = `Oyentes conectados: ${msg.clients}`;
             if (msg.clients >= 2 && !pc) {
               estadoEl.textContent = 'Profesor conectado. Configurando llamada…';
               await initPeerConnection();
