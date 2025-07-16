@@ -130,12 +130,10 @@
   <div class="container">
     <h1>DreamEcho - Profesor</h1>
     <p class="byline"><a href="https://www.youtube.com/@rafgim" target="_blank" rel="noopener">© By Rafael Gimeno</a></p>
-
     <div class="pin-section">
       <input type="text" id="pinInput" placeholder="Introduce tu PIN de sala">
       <button id="pinBtn">Crear sala</button>
     </div>
-
     <div id="mainContent" style="display:none;">
       <div class="video-container">
         <div class="video-block">
@@ -147,9 +145,7 @@
           <p class="video-label">Alumno</p>
         </div>
       </div>
-
       <button id="talkBtn">📢 Mantén pulsado para hablar</button>
-
       <div class="midi-section">
         <h3>MIDI recibido (del alumno):</h3>
         <div class="midi-controls">
@@ -159,13 +155,11 @@
         </div>
         <div id="midiStatus"></div>
       </div>
-
       <div class="midi-section">
         <h3>MIDI a enviar (tu piano):</h3>
         <div id="midiInSelectCont"></div>
         <div id="midiSendStatus"></div>
       </div>
-
       <p id="estado">Conectando...</p>
       <p id="oyentes">Oyentes conectados: --</p>
     </div>
@@ -176,15 +170,13 @@
     const pinInput = document.getElementById('pinInput');
     const pinBtn = document.getElementById('pinBtn');
     const mainContent = document.getElementById('mainContent');
-
-    pinBtn.onclick = () => {
-      if (!pinInput.value.trim()) return;
-      pin = pinInput.value.trim();
-      pinInput.disabled = true;
-      pinBtn.disabled = true;
-      mainContent.style.display = 'block';
-      initConnection();
-    };
+    let ws, pc;
+    let localStream = null, realAudioTrack = null, silentAudioTrack = null, audioSender = null;
+    let pressingTalk = false, remoteSpeaking = false;
+    let midiAccess = null, midiInputs = [], midiOutputs = [];
+    let midiOutDevice = null, midiInDevice = null, midiChannel = null;
+    let synth = null, useVirtual = true;
+    let lastClientCount = 0;
 
     const estadoEl = document.getElementById('estado');
     const oyentesEl = document.getElementById('oyentes');
@@ -197,12 +189,14 @@
     const midiInSelectCont = document.getElementById('midiInSelectCont');
     const midiSendStatus = document.getElementById('midiSendStatus');
 
-    let ws, pc;
-    let localStream = null, realAudioTrack = null, silentAudioTrack = null, audioSender = null;
-    let pressingTalk = false, remoteSpeaking = false;
-    let midiAccess = null, midiInputs = [], midiOutputs = [];
-    let midiOutDevice = null, midiInDevice = null, midiChannel = null;
-    let synth = null, useVirtual = true;
+    pinBtn.onclick = () => {
+      if (!pinInput.value.trim()) return;
+      pin = pinInput.value.trim();
+      pinInput.disabled = true;
+      pinBtn.disabled = true;
+      mainContent.style.display = 'block';
+      initConnection();
+    };
 
     function sendMessage(obj) {
       obj.pin = pin;
@@ -220,7 +214,9 @@
       return dst.stream.getAudioTracks()[0];
     }
 
-    async function startWebRTC() {
+    async function setupConnection() {
+      pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+
       localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
       realAudioTrack = localStream.getAudioTracks()[0];
       silentAudioTrack = createSilentAudioTrack();
@@ -229,13 +225,31 @@
         const sender = pc.addTrack(track, localStream);
         if (track.kind === 'audio') audioSender = sender;
       });
-      if (audioSender && audioSender.track !== silentAudioTrack) {
-        audioSender.replaceTrack(silentAudioTrack);
-      }
-      if (!midiChannel || midiChannel.readyState === 'closed') {
-        midiChannel = pc.createDataChannel('midi', { ordered: true });
-        midiChannel.onmessage = ({ data }) => handleMidiMessage(JSON.parse(data));
-      }
+      audioSender.replaceTrack(silentAudioTrack);
+
+      midiChannel = pc.createDataChannel('midi', { ordered: true });
+      midiChannel.onmessage = ({ data }) => handleMidiMessage(JSON.parse(data));
+
+      pc.onicecandidate = ({ candidate }) => {
+        if (candidate) sendMessage({ type: 'signal', candidate });
+      };
+      pc.ontrack = ev => { remoteVideo.srcObject = ev.streams[0]; };
+      pc.ondatachannel = ev => {
+        if (ev.channel.label === 'midi') {
+          ev.channel.onmessage = ({ data }) => handleMidiMessage(JSON.parse(data));
+        }
+      };
+    }
+
+    async function renegotiate() {
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      sendMessage({ type: 'signal', offer: pc.localDescription });
+    }
+
+    async function startWebRTC() {
+      await setupConnection();
+      await renegotiate();
     }
 
     function updateMicState() {
@@ -274,7 +288,7 @@
       if (midiOutputs.length) {
         const sel = document.createElement('select');
         sel.innerHTML = '<option value="">-- Elige tu teclado digital --</option>';
-        midiOutputs.forEach((o, i) => sel.innerHTML += `<option value="${i}">${o.name}</option>`);
+        midiOutputs.forEach((o,i) => sel.innerHTML += `<option value="${i}">${o.name}</option>`);
         sel.onchange = () => {
           midiOutDevice = sel.value ? midiOutputs[+sel.value] : null;
           midiStatus.textContent = midiOutDevice ? `MIDI OUT: ${midiOutDevice.name}` : 'Usando sonido virtual';
@@ -289,7 +303,7 @@
       if (midiInputs.length) {
         const sel = document.createElement('select');
         sel.innerHTML = '<option value="">-- Elige entrada MIDI --</option>';
-        midiInputs.forEach((i, k) => sel.innerHTML += `<option value="${k}">${i.name}</option>`);
+        midiInputs.forEach((i,k) => sel.innerHTML += `<option value="${k}">${i.name}</option>`);
         sel.onchange = () => {
           if (midiInDevice) midiInDevice.onmidimessage = null;
           midiInDevice = sel.value ? midiInputs[+sel.value] : null;
@@ -336,59 +350,43 @@
     }
 
     function handleMidiMessage(msg) {
-      const [st, note, vel] = msg.data;
+      const [st,note,vel] = msg.data;
       const cmd = st & 0xf0;
       if (!useVirtual && midiOutDevice) {
         midiOutDevice.send(new Uint8Array(msg.data));
       } else {
         if (!synth) return;
-        const freq = Tone.Frequency(note, 'midi').toFrequency();
-        if (cmd === 0x90 && vel > 0) {
-          const v = Math.pow(vel / 127, 2);
-          synth.triggerAttack(freq, Tone.now(), v);
-        } else if (cmd === 0x80 || (cmd === 0x90 && vel === 0)) {
-          synth.triggerRelease(freq, Tone.now());
+        const freq = Tone.Frequency(note,'midi').toFrequency();
+        if (cmd===0x90 && vel>0) {
+          const v = Math.pow(vel/127,2);
+          synth.triggerAttack(freq,Tone.now(),v);
+        } else if (cmd===0x80 || (cmd===0x90 && vel===0)) {
+          synth.triggerRelease(freq,Tone.now());
         }
       }
     }
 
     function initConnection() {
       ws = new WebSocket('wss://dreamecho.onrender.com');
-      pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
-
-      pc.onnegotiationneeded = async () => {
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        sendMessage({ type: 'signal', offer: pc.localDescription });
-      };
-
-      pc.onicecandidate = ({ candidate }) => {
-        if (candidate) sendMessage({ type: 'signal', candidate });
-      };
-
-      pc.ontrack = ev => {
-        remoteVideo.srcObject = ev.streams[0];
-      };
-
-      pc.ondatachannel = ev => {
-        if (ev.channel.label === 'midi') {
-          midiChannel = ev.channel;
-          midiChannel.onmessage = ({ data }) => handleMidiMessage(JSON.parse(data));
-        }
-      };
 
       ws.onopen = () => {
         estadoEl.innerText = 'Conectado. Iniciando WebRTC…';
+        sendMessage({ type:'ping' });
         startWebRTC();
         setupMIDI();
         setupSampler();
       };
 
       ws.onmessage = async ({ data }) => {
-        const msg = JSON.parse(typeof data === 'string' ? data : await data.text());
-        switch (msg.type) {
+        const msg = JSON.parse(typeof data==='string'?data:await data.text());
+        switch(msg.type) {
           case 'stats':
-            oyentesEl.innerText = `Oyentes conectados: ${msg.clients}`;
+            const count = msg.clients;
+            oyentesEl.innerText = `Oyentes conectados: ${count}`;
+            if (lastClientCount < 2 && count >= 2) {
+              await renegotiate();
+            }
+            lastClientCount = count;
             break;
           case 'talk':
             remoteSpeaking = msg.speaking;
@@ -400,7 +398,7 @@
               await pc.setRemoteDescription(new RTCSessionDescription(msg.offer));
               const answer = await pc.createAnswer();
               await pc.setLocalDescription(answer);
-              sendMessage({ type: 'signal', answer: pc.localDescription });
+              sendMessage({ type:'signal', answer: pc.localDescription });
             } else if (msg.answer) {
               await pc.setRemoteDescription(new RTCSessionDescription(msg.answer));
             } else if (msg.candidate) {
