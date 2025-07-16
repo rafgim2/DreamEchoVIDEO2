@@ -203,6 +203,7 @@
     let midiAccess = null, midiInputs = [], midiOutputs = [];
     let midiOutDevice = null, midiInDevice = null, midiChannel = null;
     let synth = null, useVirtual = true;
+    let lastClientCount = 0;
 
     function sendMessage(obj) {
       obj.pin = pin;
@@ -366,11 +367,17 @@
         setupMIDI();
         setupSampler();
       };
+
       ws.onmessage = async ({ data }) => {
         const msg = JSON.parse(typeof data === 'string' ? data : await data.text());
         switch (msg.type) {
           case 'stats':
-            oyentesEl.innerText = `Oyentes conectados: ${msg.clients}`;
+            const count = msg.clients;
+            oyentesEl.innerText = `Oyentes conectados: ${count}`;
+            if (lastClientCount < 2 && count >= 2) {
+              await startWebRTC();
+            }
+            lastClientCount = count;
             break;
           case 'talk':
             remoteSpeaking = msg.speaking;
@@ -391,6 +398,7 @@
             break;
         }
       };
+
       ws.onerror = () => { estadoEl.innerText = 'Error en la conexión.'; };
       ws.onclose = () => { estadoEl.innerText = 'Conexión cerrada.'; };
 
