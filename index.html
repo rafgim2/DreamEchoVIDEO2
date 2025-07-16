@@ -145,7 +145,7 @@
     </div>
   </div>
 
-  <!-- 1) Importar PianoKeys desde Skypack -->
+  <!-- Importar PianoKeys -->
   <script type="module">
     import PianoKeys from 'https://cdn.skypack.dev/@jesperdj/pianokeys@1.0.6';
     window.PianoKeys = PianoKeys;
@@ -153,21 +153,21 @@
 
   <script>
     let pin = null;
-    const pinSection      = document.getElementById('pinSection');
-    const pinInput        = document.getElementById('pinInput');
-    const pinBtn          = document.getElementById('pinBtn');
-    const mainContent     = document.getElementById('mainContent');
-    const estadoEl        = document.getElementById('estado');
-    const oyentesEl       = document.getElementById('oyentes');
-    const localVideo      = document.getElementById('localVideo');
-    const remoteVideo     = document.getElementById('remoteVideo');
-    const talkBtn         = document.getElementById('talkBtn');
-    const virtualBtn      = document.getElementById('virtualBtn');
-    const midiOutSelectCont = document.getElementById('midiOutSelectCont');
-    const midiStatus      = document.getElementById('midiStatus');
-    const midiInSelectCont  = document.getElementById('midiInSelectCont');
-    const midiSendStatus    = document.getElementById('midiSendStatus');
-    const keyboardEl      = document.getElementById('keyboard');
+    const pinSection       = document.getElementById('pinSection');
+    const pinInput         = document.getElementById('pinInput');
+    const pinBtn           = document.getElementById('pinBtn');
+    const mainContent      = document.getElementById('mainContent');
+    const estadoEl         = document.getElementById('estado');
+    const oyentesEl        = document.getElementById('oyentes');
+    const localVideo       = document.getElementById('localVideo');
+    const remoteVideo      = document.getElementById('remoteVideo');
+    const talkBtn          = document.getElementById('talkBtn');
+    const virtualBtn       = document.getElementById('virtualBtn');
+    const midiOutSelectCont= document.getElementById('midiOutSelectCont');
+    const midiStatus       = document.getElementById('midiStatus');
+    const midiInSelectCont = document.getElementById('midiInSelectCont');
+    const midiSendStatus   = document.getElementById('midiSendStatus');
+    const keyboardEl       = document.getElementById('keyboard');
 
     let ws, pc, piano;
     let realAudioTrack, silentAudioTrack, audioSender;
@@ -188,12 +188,12 @@
 
     async function initLocalVideo() {
       const stream = await navigator.mediaDevices.getUserMedia({ video:true, audio:true });
-      realAudioTrack = stream.getAudioTracks()[0];
+      realAudioTrack   = stream.getAudioTracks()[0];
       silentAudioTrack = createSilentAudioTrack();
       localVideo.srcObject = stream;
       stream.getTracks().forEach(t => {
         const sender = pc.addTrack(t, stream);
-        if (t.kind==='audio') audioSender = sender;
+        if (t.kind === 'audio') audioSender = sender;
       });
       if (audioSender) audioSender.replaceTrack(silentAudioTrack);
     }
@@ -235,10 +235,14 @@
       await pc.setLocalDescription(offer);
       sendMessage({ type:'signal', offer:pc.localDescription });
 
-      pc.onicecandidate = ({ candidate }) => { if(candidate) sendMessage({ type:'signal', candidate }); };
-      pc.ontrack = ev => { remoteVideo.srcObject = ev.streams[0]; };
+      pc.onicecandidate = ({ candidate }) => {
+        if (candidate) sendMessage({ type:'signal', candidate });
+      };
+      pc.ontrack = ev => {
+        remoteVideo.srcObject = ev.streams[0];
+      };
       pc.ondatachannel = ev => {
-        if(ev.channel.label==='midi') {
+        if (ev.channel.label==='midi') {
           midiChannel = ev.channel;
           midiChannel.onmessage = ({ data }) => handleMidiMessage(JSON.parse(data));
         }
@@ -246,17 +250,17 @@
     }
 
     async function setupMIDI() {
-      midiAccess = await navigator.requestMIDIAccess();
+      midiAccess  = await navigator.requestMIDIAccess();
       midiInputs  = Array.from(midiAccess.inputs.values());
       midiOutputs = Array.from(midiAccess.outputs.values());
 
       // SALIDAS MIDI
       midiOutSelectCont.innerHTML = '';
-      if(midiOutputs.length){
+      if (midiOutputs.length) {
         const sel = document.createElement('select');
         sel.innerHTML = '<option value="">-- Elige tu teclado digital --</option>';
-        midiOutputs.forEach((o,i)=> sel.innerHTML+= `<option value="${i}">${o.name}</option>`);
-        sel.onchange = ()=>{
+        midiOutputs.forEach((o,i)=> sel.innerHTML += `<option value="${i}">${o.name}</option>`);
+        sel.onchange = () => {
           midiOutDevice = sel.value ? midiOutputs[+sel.value] : null;
           midiStatus.textContent = midiOutDevice
             ? `MIDI OUT: ${midiOutDevice.name}`
@@ -270,17 +274,17 @@
 
       // ENTRADAS MIDI
       midiInSelectCont.innerHTML = '';
-      if(midiInputs.length){
+      if (midiInputs.length) {
         const selIn = document.createElement('select');
         selIn.innerHTML = '<option value="">-- Elige entrada MIDI --</option>';
-        midiInputs.forEach((i,k)=> selIn.innerHTML+= `<option value="${k}">${i.name}</option>`);
-        selIn.onchange = ()=>{
-          if(midiInDevice) midiInDevice.onmidimessage=null;
+        midiInputs.forEach((i,k)=> selIn.innerHTML += `<option value="${k}">${i.name}</option>`);
+        selIn.onchange = () => {
+          if (midiInDevice) midiInDevice.onmidimessage = null;
           midiInDevice = selIn.value ? midiInputs[+selIn.value] : null;
-          if(midiInDevice){
-            midiInDevice.onmidimessage = ({ data })=>{
-              if(midiChannel && midiChannel.readyState==='open'){
-                midiChannel.send(JSON.stringify({ data:Array.from(data) }));
+          if (midiInDevice) {
+            midiInDevice.onmidimessage = ({ data }) => {
+              if (midiChannel && midiChannel.readyState==='open') {
+                midiChannel.send(JSON.stringify({ data: Array.from(data) }));
               }
             };
             midiSendStatus.textContent = `Enviando MIDI desde: ${midiInDevice.name}`;
@@ -295,7 +299,7 @@
     }
 
     async function setupSampler() {
-      if(synth) return;
+      if (synth) return;
       await Tone.start();
       synth = new Tone.Sampler({
         urls: {
@@ -307,9 +311,9 @@
           A5:'A5.mp3', C6:'C6.mp3','D#6':'Ds6.mp3','F#6':'Fs6.mp3',
           A7:'A7.mp3', C8:'C8.mp3'
         },
-        baseUrl:'https://tonejs.github.io/audio/salamander/',
-        release:0.4,
-        onload:()=> midiStatus.textContent='Sonido virtual listo'
+        baseUrl: 'https://tonejs.github.io/audio/salamander/',
+        release: 0.4,
+        onload: () => midiStatus.textContent = 'Sonido virtual listo'
       }).toDestination();
     }
 
@@ -318,14 +322,12 @@
       const cmd = st & 0xf0;
       const noteName = Tone.Frequency(note, 'midi').toNote();
 
-      // iluminar o apagar tecla SVG
       if (cmd === 0x90 && vel > 0) {
         piano.fillKey(noteName);
       } else if (cmd === 0x80 || (cmd === 0x90 && vel === 0)) {
         piano.clearKey(noteName);
       }
 
-      // reproducir sonido
       if (!useVirtual && midiOutDevice) {
         midiOutDevice.send(new Uint8Array(msg.data));
       } else {
@@ -346,7 +348,6 @@
       pinSection.style.display = 'none';
       mainContent.style.display = 'block';
 
-      // inicializar piano SVG de 88 teclas
       piano = new PianoKeys.Keyboard(keyboardEl, {
         width:  keyboardEl.clientWidth,
         height: keyboardEl.clientHeight,
@@ -355,33 +356,34 @@
         activeColour: '#4a4'
       });
 
-      // websocket + webrtc + midi
-      estadoEl.textContent = 'Conectando…';
       ws = new WebSocket('wss://dreamecho.onrender.com');
       ws.onopen = () => {
-        estadoEl.textContent = 'Conectado. Iniciando WebRTC…';
-        sendMessage({ type:'ping' });
-        startWebRTC();
+        estadoEl.textContent = 'Conectado, esperando al profesor…';
+        sendMessage({ type: 'ping' });
         setupMIDI();
         setupSampler();
       };
       ws.onmessage = async ({ data }) => {
-        const msg = JSON.parse(typeof data==='string'?data:await data.text());
-        switch(msg.type) {
+        const msg = JSON.parse(typeof data==='string' ? data : await data.text());
+        switch (msg.type) {
           case 'stats':
             oyentesEl.textContent = `Oyentes conectados: ${msg.clients}`;
+            if (msg.clients >= 2 && !pc) {
+              estadoEl.textContent = 'Profesor conectado. Iniciando llamada…';
+              startWebRTC();
+            }
             break;
           case 'talk':
             remoteSpeaking = msg.speaking;
             updateMicState();
             break;
           case 'signal':
-            if (msg.pin!==pin) return;
+            if (msg.pin !== pin) return;
             if (msg.offer) {
               await pc.setRemoteDescription(new RTCSessionDescription(msg.offer));
               const ans = await pc.createAnswer();
               await pc.setLocalDescription(ans);
-              sendMessage({ type:'signal', answer:pc.localDescription });
+              sendMessage({ type: 'signal', answer: pc.localDescription });
             } else if (msg.answer) {
               await pc.setRemoteDescription(new RTCSessionDescription(msg.answer));
             } else if (msg.candidate) {
@@ -390,8 +392,8 @@
             break;
         }
       };
-      ws.onerror = ()=>{ estadoEl.textContent='Error en la conexión.'; };
-      ws.onclose = ()=>{ estadoEl.textContent='Conexión cerrada.'; };
+      ws.onerror = () => { estadoEl.textContent = 'Error en la conexión.'; };
+      ws.onclose = () => { estadoEl.textContent = 'Conexión cerrada.'; };
     };
   </script>
 </body>
