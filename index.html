@@ -5,130 +5,244 @@
   <title>DreamEcho - Profesor</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.39/Tone.min.js"></script>
   <style>
-    html, body { min-height: 100%; margin: 0; font-family: sans-serif; background: #f5f5f5; }
-    body { display: flex; justify-content: center; align-items: flex-start; text-align: center; overflow-y: auto; padding: 1em 0; }
-    .container { max-width: 700px; width: 95%; padding: 2em; background: #fff; border-radius: 1em; border: 3px solid orange; box-shadow: 0 0 20px rgba(0,0,0,.1); }
-    h1 { font-size: 3em; margin-bottom: .2em; }
-    .byline a { text-decoration: none; color: inherit; }
-    .pin-section { margin-bottom: 1.5em; }
-    .pin-section input { font-size: 1.2em; padding: .4em; width: 60%; max-width: 200px; text-align: center; }
-    .pin-section button { font-size: 1.1em; padding: .6em 1.2em; margin-left: .5em; border: none; border-radius: .5em; background: #ff9800; color: #fff; cursor: pointer; }
-    #appContent { display: none; }
-    .video-container { display: flex; gap: 1em; justify-content: center; flex-wrap: nowrap; margin-bottom: 1em; }
-    .video-block { flex: 1 1 45%; display: flex; flex-direction: column; align-items: center; }
-    .video-block video { width: 100%; max-height: 250px; background: #000; border-radius: .5em; }
-    .video-label { margin-top: .3em; font-weight: bold; color: #333; }
-    #talkBtn { padding: .8em 2em; font-size: 1.1em; margin: 1em 0; border: none; border-radius: .7em; background: #ff9800; color: #fff; cursor: pointer; user-select: none; }
-    #talkBtn:active { transform: scale(.96); background: red; }
-    .midi-section { margin: 1.5em 0; text-align: center; }
-    .midi-section h3 { margin-bottom: .5em; font-size: 1.2em; }
-    .midi-controls { display: flex; justify-content: center; align-items: center; gap: 1em; margin-bottom: .5em; }
-    .midi-controls .label { font-weight: bold; }
-    .midi-controls select { padding: .4em; font-size: 1em; }
-    #virtualBtn { padding: .6em 1em; font-size: 1em; cursor: pointer; }
-    #midiStatus, #midiSendStatus, #estado, #oyentes { margin-top: .5em; color: #555; }
+    html, body {
+      min-height: 100%;
+      margin: 0;
+      font-family: sans-serif;
+      background: #f5f5f5;
+    }
+    body {
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      text-align: center;
+      overflow-y: auto;
+      padding: 1em 0;
+    }
+    .container {
+      max-width: 700px;
+      width: 95%;
+      padding: 2em;
+      background: #fff;
+      border-radius: 1em;
+      border: 3px solid orange;
+      box-shadow: 0 0 20px rgba(0,0,0,.1);
+    }
+    h1 {
+      font-size: 3em;
+      margin-bottom: .2em;
+    }
+    .byline a {
+      text-decoration: none;
+      color: inherit;
+    }
+    .video-container {
+      display: flex;
+      gap: 1em;
+      justify-content: center;
+      flex-wrap: nowrap;
+      margin-bottom: 1em;
+    }
+    .video-block {
+      flex: 1 1 45%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .video-block video {
+      width: 100%;
+      max-height: 250px;
+      background: #000;
+      border-radius: .5em;
+    }
+    .video-label {
+      margin-top: 0.3em;
+      font-weight: bold;
+      color: #333;
+    }
+    #talkBtn, #createBtn {
+      padding: .8em 2em;
+      font-size: 1.1em;
+      margin: 1em 0;
+      border: none;
+      border-radius: .7em;
+      background: #ff9800;
+      color: #fff;
+      cursor: pointer;
+      user-select: none;
+    }
+    #talkBtn:active {
+      transform: scale(.96);
+      background: red;
+    }
+    .midi-section {
+      margin: 1.5em 0;
+      text-align: center;
+    }
+    .midi-section h3 {
+      margin-bottom: .5em;
+      font-size: 1.2em;
+    }
+    .midi-controls {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 1em;
+      margin-bottom: .5em;
+    }
+    .midi-controls .label {
+      font-weight: bold;
+    }
+    .midi-controls select {
+      padding: .4em;
+      font-size: 1em;
+    }
+    #virtualBtn {
+      padding: .6em 1em;
+      font-size: 1em;
+      cursor: pointer;
+    }
+    #midiStatus, #midiSendStatus {
+      margin-top: .5em;
+      color: #555;
+    }
+    #pinInput {
+      padding: .4em;
+      font-size: 1.1em;
+      width: 150px;
+      text-align: center;
+    }
   </style>
 </head>
 <body>
   <div class="container">
     <h1>DreamEcho - Profesor</h1>
     <p class="byline"><a href="https://www.youtube.com/@rafgim" target="_blank" rel="noopener">© By Rafael Gimeno</a></p>
-    <div class="pin-section">
-      <input type="text" id="pinInput" placeholder="Escribe un PIN">
-      <button id="createRoomBtn">Crear sala</button>
+
+    <input id="pinInput" placeholder="PIN para sala" maxlength="6" />
+    <button id="createBtn">Crear sala</button>
+
+    <div class="video-container">
+      <div class="video-block">
+        <video id="localVideo" autoplay muted playsinline></video>
+        <p class="video-label">Tú</p>
+      </div>
+      <div class="video-block">
+        <video id="remoteVideo" autoplay playsinline></video>
+        <p class="video-label">Alumno</p>
+      </div>
     </div>
-    <div id="appContent">
-      <div class="video-container">
-        <div class="video-block">
-          <video id="localVideo" autoplay muted playsinline></video>
-          <p class="video-label">Tú</p>
-        </div>
-        <div class="video-block">
-          <video id="remoteVideo" autoplay playsinline></video>
-          <p class="video-label">Alumno</p>
-        </div>
+
+    <button id="talkBtn">📢 Mantén pulsado para hablar</button>
+
+    <div class="midi-section">
+      <h3>MIDI recibido (del alumno):</h3>
+      <div class="midi-controls">
+        <span class="label">Seleccionar piano digital</span>
+        <div id="midiOutSelectCont"></div>
+        <button id="virtualBtn">🎧 Usar sonido virtual</button>
       </div>
-      <button id="talkBtn">📢 Mantén pulsado para hablar</button>
-      <div class="midi-section">
-        <h3>MIDI recibido (del alumno):</h3>
-        <div class="midi-controls">
-          <span class="label">Seleccionar piano digital</span>
-          <div id="midiOutSelectCont"></div>
-          <button id="virtualBtn">🎧 Usar sonido virtual</button>
-        </div>
-        <div id="midiStatus"></div>
-      </div>
-      <div class="midi-section">
-        <h3>MIDI a enviar (tu piano):</h3>
-        <div id="midiInSelectCont"></div>
-        <div id="midiSendStatus"></div>
-      </div>
-      <p id="estado">Conectando...</p>
-      <p id="oyentes">Oyentes conectados: --</p>
+      <div id="midiStatus"></div>
     </div>
+
+    <div class="midi-section">
+      <h3>MIDI a enviar (tu piano):</h3>
+      <div id="midiInSelectCont"></div>
+      <div id="midiSendStatus"></div>
+    </div>
+
+    <p id="estado">Conectando…</p>
+    <p id="oyentes">Oyentes conectados: --</p>
   </div>
 
   <script>
-    let pin, ws, pc, localStream, realAudioTrack, silentAudioTrack, audioSender;
-    let pressingTalk = false, remoteSpeaking = false;
-    let midiAccess, midiInputs = [], midiOutputs = [], midiOutDevice, midiInDevice, midiChannel;
-    let synth, useVirtual = true;
-
-    const pinInput        = document.getElementById('pinInput');
-    const createRoomBtn   = document.getElementById('createRoomBtn');
-    const appContent      = document.getElementById('appContent');
-    const estadoEl        = document.getElementById('estado');
-    const oyentesEl       = document.getElementById('oyentes');
-    const localVideo      = document.getElementById('localVideo');
-    const remoteVideo     = document.getElementById('remoteVideo');
-    const talkBtn         = document.getElementById('talkBtn');
-    const virtualBtn      = document.getElementById('virtualBtn');
+    const estadoEl = document.getElementById('estado');
+    const oyentesEl = document.getElementById('oyentes');
+    const localVideo = document.getElementById('localVideo');
+    const remoteVideo = document.getElementById('remoteVideo');
+    const talkBtn = document.getElementById('talkBtn');
+    const createBtn = document.getElementById('createBtn');
+    const pinInput = document.getElementById('pinInput');
+    const virtualBtn = document.getElementById('virtualBtn');
     const midiOutSelectCont = document.getElementById('midiOutSelectCont');
-    const midiStatus      = document.getElementById('midiStatus');
-    const midiInSelectCont  = document.getElementById('midiInSelectCont');
-    const midiSendStatus  = document.getElementById('midiSendStatus');
+    const midiStatus = document.getElementById('midiStatus');
+    const midiInSelectCont = document.getElementById('midiInSelectCont');
+    const midiSendStatus = document.getElementById('midiSendStatus');
 
-    createRoomBtn.onclick = async () => {
-      const val = pinInput.value.trim();
-      if (!val) { alert('Introduce un PIN válido.'); return; }
-      pin = val;
-      pinInput.disabled = true;
-      createRoomBtn.disabled = true;
-      appContent.style.display = 'block';
+    let ws, pc, midiChannel;
+    let localStream = null, realAudioTrack = null, silentAudioTrack = null, audioSender = null;
+    let pressingTalk = false, remoteSpeaking = false;
+    let midiAccess = null, midiInputs = [], midiOutputs = [], midiOutDevice = null, midiInDevice = null;
+    let synth = null, useVirtual = true;
 
-      try {
-        localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-        realAudioTrack = localStream.getAudioTracks()[0];
-        silentAudioTrack = createSilentAudioTrack();
-        localVideo.srcObject = localStream;
-      } catch {
-        estadoEl.innerText = 'No se pudo acceder a cámara/micro.';
-        return;
+    function createSilentAudioTrack() {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      osc.frequency.value = 0;
+      const dst = ctx.createMediaStreamDestination();
+      osc.connect(dst);
+      osc.start();
+      setTimeout(() => osc.stop(), 100);
+      return dst.stream.getAudioTracks()[0];
+    }
+
+    function updateMicState() {
+      if (!audioSender) return;
+      const active = pressingTalk && !remoteSpeaking;
+      if (active) {
+        if (audioSender.track !== realAudioTrack) {
+          audioSender.replaceTrack(realAudioTrack);
+        }
+      } else {
+        if (audioSender.track !== silentAudioTrack) {
+          audioSender.replaceTrack(silentAudioTrack);
+        }
       }
+    }
 
-      initConnection();
-    };
+    function pressTalk() {
+      pressingTalk = true;
+      ws.send(JSON.stringify({ type: 'talk', speaking: true }));
+      talkBtn.style.background = 'red';
+      updateMicState();
+    }
 
-    function initConnection() {
-      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-      ws = new WebSocket(`${proto}://${location.host}`);
+    function releaseTalk() {
+      pressingTalk = false;
+      ws.send(JSON.stringify({ type: 'talk', speaking: false }));
+      talkBtn.style.background = '';
+      updateMicState();
+    }
+
+    ['mousedown','touchstart'].forEach(e => talkBtn.addEventListener(e, pressTalk));
+    ['mouseup','mouseleave','touchend','touchcancel'].forEach(e => talkBtn.addEventListener(e, releaseTalk));
+
+    createBtn.onclick = async () => {
+      const pin = pinInput.value.trim();
+      if (!pin) return alert('Escribe un PIN para la sala');
+      ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host);
       pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
-
+      localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      realAudioTrack = localStream.getAudioTracks()[0];
+      silentAudioTrack = createSilentAudioTrack();
+      localVideo.srcObject = localStream;
       localStream.getTracks().forEach(track => {
         const sender = pc.addTrack(track, localStream);
         if (track.kind === 'audio') audioSender = sender;
       });
-      audioSender.replaceTrack(silentAudioTrack);
-
+      if (audioSender && audioSender.track !== silentAudioTrack) {
+        audioSender.replaceTrack(silentAudioTrack);
+      }
+      midiChannel = pc.createDataChannel('midi', { ordered: true });
+      midiChannel.onmessage = ({ data }) => handleMidiMessage(JSON.parse(data));
       ws.onopen = () => {
         ws.send(JSON.stringify({ type: 'join', role: 'profesor', pin }));
-        estadoEl.innerText = 'Conectado. Creando oferta…';
-        createAndSendOffer();
         setupMIDI();
         setupSampler();
+        estadoEl.innerText = 'Conectado. Esperando alumno…';
       };
       ws.onmessage = async ({ data }) => {
-        const msg = JSON.parse(typeof data === 'string' ? data : await data.text());
+        const msg = JSON.parse(data);
         switch (msg.type) {
           case 'stats':
             oyentesEl.innerText = `Oyentes conectados: ${msg.clients}`;
@@ -151,114 +265,81 @@
             break;
         }
       };
-      ws.onerror = () => { estadoEl.innerText = 'Error en la conexión.'; };
-      ws.onclose = () => { estadoEl.innerText = 'Conexión cerrada.'; };
-
+      ws.onerror = () => estadoEl.innerText = 'Error en la conexión.';
+      ws.onclose = () => estadoEl.innerText = 'Conexión cerrada.';
       pc.onicecandidate = ({ candidate }) => {
         if (candidate) ws.send(JSON.stringify({ type: 'signal', candidate }));
       };
-      pc.ontrack = ev => { remoteVideo.srcObject = ev.streams[0]; };
-      pc.ondatachannel = ev => {
-        if (ev.channel.label === 'midi') {
-          midiChannel = ev.channel;
-          midiChannel.onmessage = ({ data }) => handleMidiMessage(JSON.parse(data));
-        }
+      pc.ontrack = ev => {
+        remoteVideo.srcObject = ev.streams[0];
       };
-    }
-
-    async function createAndSendOffer() {
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      ws.send(JSON.stringify({ type: 'signal', offer: pc.localDescription }));
-    }
-
-    function createSilentAudioTrack() {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      const osc = ctx.createOscillator();
-      osc.frequency.value = 0;
-      const dst = ctx.createMediaStreamDestination();
-      osc.connect(dst);
-      osc.start();
-      setTimeout(() => osc.stop(), 100);
-      return dst.stream.getAudioTracks()[0];
-    }
-
-    function updateMicState() {
-      if (!audioSender) return;
-      const active = pressingTalk && !remoteSpeaking;
-      audioSender.replaceTrack(active ? realAudioTrack : silentAudioTrack);
-    }
-
-    ['mousedown','touchstart'].forEach(e => talkBtn.addEventListener(e, () => {
-      pressingTalk = true;
-      ws.send(JSON.stringify({ type: 'talk', speaking: true }));
-      talkBtn.style.background = 'red';
-      updateMicState();
-    }));
-    ['mouseup','mouseleave','touchend','touchcancel'].forEach(e => talkBtn.addEventListener(e, () => {
-      pressingTalk = false;
-      ws.send(JSON.stringify({ type: 'talk', speaking: false }));
-      talkBtn.style.background = '';
-      updateMicState();
-    }));
+    };
 
     async function setupMIDI() {
-      midiAccess = await navigator.requestMIDIAccess();
-      midiInputs = Array.from(midiAccess.inputs.values());
-      midiOutputs = Array.from(midiAccess.outputs.values());
-      midiOutSelectCont.innerHTML = '';
-      if (midiOutputs.length) {
-        const sel = document.createElement('select');
-        sel.innerHTML = '<option value=\"\">-- Elige tu teclado digital --</option>';
-        midiOutputs.forEach((o,i) => sel.innerHTML += `<option value=\"${i}\">${o.name}</option>`);
-        sel.onchange = () => {
-          midiOutDevice = sel.value ? midiOutputs[+sel.value] : null;
-          midiStatus.textContent = midiOutDevice
-            ? `MIDI OUT: ${midiOutDevice.name}`
-            : 'Usando sonido virtual';
-          useVirtual = !midiOutDevice;
-        };
-        midiOutSelectCont.appendChild(sel);
-      } else {
-        midiOutSelectCont.textContent = '(No hay salidas MIDI físicas conectadas)';
-      }
-      midiInSelectCont.innerHTML = '';
-      if (midiInputs.length) {
-        const sel = document.createElement('select');
-        sel.innerHTML = '<option value=\"\">-- Elige entrada MIDI --</option>';
-        midiInputs.forEach((i,k) => sel.innerHTML += `<option value=\"${k}\">${i.name}</option>`);
-        sel.onchange = () => {
-          if (midiInDevice) midiInDevice.onmidimessage = null;
-          midiInDevice = sel.value ? midiInputs[+sel.value] : null;
-          if (midiInDevice) {
-            midiInDevice.onmidimessage = ({ data }) => {
-              if (midiChannel && midiChannel.readyState === 'open') {
-                midiChannel.send(JSON.stringify({ data: Array.from(data) }));
-              }
-            };
-            midiSendStatus.textContent = `Enviando MIDI desde: ${midiInDevice.name}`;
-          } else {
-            midiSendStatus.textContent = '';
-          }
-        };
-        midiInSelectCont.appendChild(sel);
-      } else {
-        midiInSelectCont.textContent = '(No hay entradas MIDI físicas conectadas)';
+      try {
+        midiAccess = await navigator.requestMIDIAccess();
+        midiInputs = Array.from(midiAccess.inputs.values());
+        midiOutputs = Array.from(midiAccess.outputs.values());
+        midiOutSelectCont.innerHTML = '';
+        if (midiOutputs.length) {
+          const sel = document.createElement('select');
+          sel.innerHTML = '<option value="">-- Elige tu teclado digital --</option>';
+          midiOutputs.forEach((o, i) => sel.innerHTML += `<option value="${i}">${o.name}</option>`);
+          sel.onchange = () => {
+            midiOutDevice = sel.value ? midiOutputs[+sel.value] : null;
+            midiStatus.textContent = midiOutDevice ? `MIDI OUT: ${midiOutDevice.name}` : 'Usando sonido virtual';
+            useVirtual = !midiOutDevice;
+          };
+          midiOutSelectCont.appendChild(sel);
+        } else {
+          midiOutSelectCont.textContent = '(No hay salidas MIDI físicas conectadas)';
+        }
+        midiInSelectCont.innerHTML = '';
+        if (midiInputs.length) {
+          const sel = document.createElement('select');
+          sel.innerHTML = '<option value="">-- Elige entrada MIDI --</option>';
+          midiInputs.forEach((i, k) => sel.innerHTML += `<option value="${k}">${i.name}</option>`);
+          sel.onchange = () => {
+            if (midiInDevice) midiInDevice.onmidimessage = null;
+            midiInDevice = sel.value ? midiInputs[+sel.value] : null;
+            if (midiInDevice) {
+              midiInDevice.onmidimessage = ({ data }) => {
+                if (midiChannel && midiChannel.readyState === 'open') {
+                  midiChannel.send(JSON.stringify({ data: Array.from(data) }));
+                }
+              };
+              midiSendStatus.textContent = `Enviando MIDI desde: ${midiInDevice.name}`;
+            } else {
+              midiSendStatus.textContent = '';
+            }
+          };
+          midiInSelectCont.appendChild(sel);
+        } else {
+          midiInSelectCont.textContent = '(No hay entradas MIDI físicas conectadas)';
+        }
+      } catch {
+        midiStatus.textContent = 'No se pudo acceder a MIDI.';
       }
     }
+
+    virtualBtn.onclick = async () => {
+      useVirtual = true;
+      midiStatus.textContent = 'Usando sonido virtual';
+      await setupSampler();
+    };
 
     async function setupSampler() {
       if (synth) return;
       await Tone.start();
       synth = new Tone.Sampler({
         urls: {
-          A0:'A0.mp3', C1:'C1.mp3', 'D#1':'Ds1.mp3', 'F#1':'Fs1.mp3',
-          A1:'A1.mp3', C2:'C2.mp3', 'D#2':'Ds2.mp3', 'F#2':'Fs2.mp3',
-          A2:'A2.mp3', C3:'C3.mp3', 'D#3':'Ds3.mp3', 'F#3':'Fs3.mp3',
-          A3:'A3.mp3', C4:'C4.mp3', 'D#4':'Ds4.mp3', 'F#4':'Fs4.mp3',
-          A4:'A4.mp3', C5:'C5.mp3', 'D#5':'Ds5.mp3', 'F#5':'Fs5.mp3',
-          A5:'A5.mp3', C6:'C6.mp3', 'D#6':'Ds6.mp3', 'F#6':'Fs6.mp3',
-          A7:'A7.mp3', C8:'C8.mp3'
+          A0: 'A0.mp3', C1: 'C1.mp3', 'D#1': 'Ds1.mp3', 'F#1': 'Fs1.mp3',
+          A1: 'A1.mp3', C2: 'C2.mp3', 'D#2': 'Ds2.mp3', 'F#2': 'Fs2.mp3',
+          A2: 'A2.mp3', C3: 'C3.mp3', 'D#3': 'Ds3.mp3', 'F#3': 'Fs3.mp3',
+          A3: 'A3.mp3', C4: 'C4.mp3', 'D#4': 'Ds4.mp3', 'F#4': 'Fs4.mp3',
+          A4: 'A4.mp3', C5: 'C5.mp3', 'D#5': 'Ds5.mp3', 'F#5': 'Fs5.mp3',
+          A5: 'A5.mp3', C6: 'C6.mp3', 'D#6': 'Ds6.mp3', 'F#6': 'Fs6.mp3',
+          A7: 'A7.mp3', C8: 'C8.mp3'
         },
         baseUrl: 'https://tonejs.github.io/audio/salamander/',
         release: 0.4,
@@ -267,15 +348,17 @@
     }
 
     function handleMidiMessage(msg) {
-      const [st,note,vel] = msg.data;
+      const [st, note, vel] = msg.data;
       const cmd = st & 0xf0;
       if (!useVirtual && midiOutDevice) {
         midiOutDevice.send(new Uint8Array(msg.data));
-      } else if (synth) {
+      } else {
+        if (!synth) return;
         const freq = Tone.Frequency(note, 'midi').toFrequency();
         if (cmd === 0x90 && vel > 0) {
-          synth.triggerAttack(freq, Tone.now(), Math.pow(vel/127,2));
-        } else {
+          const v = Math.pow(vel / 127, 2);
+          synth.triggerAttack(freq, Tone.now(), v);
+        } else if (cmd === 0x80 || (cmd === 0x90 && vel === 0)) {
           synth.triggerRelease(freq, Tone.now());
         }
       }
