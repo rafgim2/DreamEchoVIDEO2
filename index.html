@@ -204,17 +204,13 @@
     let midiOutDevice = null, midiInDevice = null, midiChannel = null;
     let synth = null, useVirtual = true;
     let lastClientCount = 0;
-    let renegotiationRequested = false;
 
     function sendMessage(obj) {
       obj.pin = pin;
       ws.send(JSON.stringify(obj));
     }
 
-    async function ensureLocalStream() {
-      if (localStream) return;
-      localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-      realAudioTrack = localStream.getAudioTracks()[0];
+    function createSilentAudioTrack() {
       const ctx = new (window.AudioContext || window.webkitAudioContext)();
       const osc = ctx.createOscillator();
       osc.frequency.value = 0;
@@ -222,43 +218,29 @@
       osc.connect(dst);
       osc.start();
       setTimeout(() => osc.stop(), 100);
-      silentAudioTrack = dst.stream.getAudioTracks()[0];
+      return dst.stream.getAudioTracks()[0];
+    }
 
+    async function startWebRTC() {
+      localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      realAudioTrack = localStream.getAudioTracks()[0];
+      silentAudioTrack = createSilentAudioTrack();
       localVideo.srcObject = localStream;
       localStream.getTracks().forEach(track => {
         const sender = pc.addTrack(track, localStream);
         if (track.kind === 'audio') audioSender = sender;
       });
       audioSender.replaceTrack(silentAudioTrack);
-    }
 
-    async function startWebRTC() {
-      if (!pc) return;
-      await ensureLocalStream();
+      // Si es la primera oferta o tras alumno conectado:
       if (!midiChannel || midiChannel.readyState === 'closed') {
         midiChannel = pc.createDataChannel('midi', { ordered: true });
         midiChannel.onmessage = ({ data }) => handleMidiMessage(JSON.parse(data));
       }
+
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
       sendMessage({ type: 'signal', offer: pc.localDescription });
-    }
-
-    function requestRenegotiation() {
-      if (renegotiationRequested) return;
-      renegotiationRequested = true;
-      if (pc.signalingState === 'stable') {
-        console.log('Alumno conectado: renegociando inmediatamente…');
-        startWebRTC();
-      } else {
-        pc.addEventListener('signalingstatechange', function onChange() {
-          if (pc.signalingState === 'stable') {
-            pc.removeEventListener('signalingstatechange', onChange);
-            console.log('Profesor renegocia tras estado "stable"…');
-            startWebRTC();
-          }
-        });
-      }
     }
 
     function updateMicState() {
@@ -273,12 +255,14 @@
       talkBtn.style.background = 'red';
       updateMicState();
     }
+
     function releaseTalk() {
       pressingTalk = false;
       sendMessage({ type: 'talk', speaking: false });
       talkBtn.style.background = '';
       updateMicState();
     }
+
     ['mousedown','touchstart'].forEach(e => talkBtn.addEventListener(e, pressTalk));
     ['mouseup','mouseleave','touchend','touchcancel'].forEach(e => talkBtn.addEventListener(e, releaseTalk));
 
@@ -291,11 +275,11 @@
       if (midiOutputs.length) {
         const sel = document.createElement('select');
         sel.innerHTML = '<option value="">-- Elige tu teclado digital --</option>';
-        midiOutputs.forEach((o,i) => sel.innerHTML += `<option value="${i}">${o.name}</option>`);
+        midiOutputs.forEach((o, i) => sel.innerHTML += `<option value="${i}">${o.name}</option>`);
         sel.onchange = () => {
           midiOutDevice = sel.value ? midiOutputs[+sel.value] : null;
           midiStatus.textContent = midiOutDevice
-            ? `MIDI OUT: ${midiOutDevice.name}`
+            ? `MIDI OUT: ${midiOutDevice.name}` 
             : 'Usando sonido virtual';
           useVirtual = !midiOutDevice;
         };
@@ -361,10 +345,10 @@
         midiOutDevice.send(new Uint8Array(msg.data));
       } else if (synth) {
         const freq = Tone.Frequency(note,'midi').toFrequency();
-        if (cmd===0x90 && vel>0) {
-          synth.triggerAttack(freq,Tone.now(), Math.pow(vel/127,2));
-        } else if (cmd===0x80 || (cmd===0x90 && vel===0)) {
-          synth.triggerRelease(freq,Tone.now());
+        if (cmd === 0x90 && vel > 0) {
+          synth.triggerAttack(freq, Tone.now(), Math.pow(vel/127,2));
+        } else if (cmd === 0x80 || (cmd===0x90 && vel===0)) {
+          synth.triggerRelease(freq, Tone.now());
         }
       }
     }
@@ -373,24 +357,12 @@
       ws = new WebSocket('wss://dreamecho.onrender.com');
       pc = new RTCPeerConnection({ iceServers:[{ urls:'stun:stun.l.google.com:19302' }] });
 
-      ws.onopen = () => {
-        estadoEl.innerText = 'Conectado. Iniciando WebRTC…';
-        sendMessage({ type:'ping' });
-        startWebRTC();
-        setupMIDI();
-        setupSampler();
-      };
-
+      // cuando llegue respuesta o candidatos del alumno
       ws.onmessage = async ({ data }) => {
-        const msg = JSON.parse(typeof data==='string' ? data : await data.text());
+        const msg = JSON.parse(typeof data==='string'?data:await data.text());
         switch(msg.type) {
           case 'stats':
-            const count = msg.clients;
-            oyentesEl.innerText = `Oyentes conectados: ${count}`;
-            if (lastClientCount < 2 && count >= 2) {
-              requestRenegotiation();
-            }
-            lastClientCount = count;
+            oyentesEl.innerText = `Oyentes conectados: ${msg.clients}`;
             break;
           case 'talk':
             remoteSpeaking = msg.speaking;
@@ -399,10 +371,7 @@
           case 'signal':
             if (msg.pin !== pin) return;
             if (msg.offer) {
-              await pc.setRemoteDescription(new RTCSessionDescription(msg.offer));
-              const answer = await pc.createAnswer();
-              await pc.setLocalDescription(answer);
-              sendMessage({ type:'signal', answer: pc.localDescription });
+              // nunca debería llegar offer al profesor tras la inicial
             } else if (msg.answer) {
               await pc.setRemoteDescription(new RTCSessionDescription(msg.answer));
             } else if (msg.candidate) {
@@ -412,8 +381,15 @@
         }
       };
 
-      ws.onerror = () => { estadoEl.innerText = 'Error en la conexión.'; };
-      ws.onclose = () => { estadoEl.innerText = 'Conexión cerrada.'; };
+      ws.onopen = () => {
+        estadoEl.innerText = 'Conectado. Iniciando WebRTC…';
+        sendMessage({ type:'ping' });
+        setupMIDI();
+        setupSampler();
+        startWebRTC();
+      };
+      ws.onerror = () => estadoEl.innerText = 'Error en la conexión.';
+      ws.onclose = () => estadoEl.innerText = 'Conexión cerrada.';
 
       pc.onicecandidate = ({ candidate }) => {
         if (candidate) sendMessage({ type:'signal', candidate });
@@ -422,7 +398,7 @@
         remoteVideo.srcObject = ev.streams[0];
       };
       pc.ondatachannel = ev => {
-        if (ev.channel.label === 'midi') {
+        if (ev.channel.label==='midi') {
           ev.channel.onmessage = ({ data }) => handleMidiMessage(JSON.parse(data));
         }
       };
