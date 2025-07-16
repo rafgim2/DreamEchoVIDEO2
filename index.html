@@ -203,7 +203,6 @@
     let midiAccess = null, midiInputs = [], midiOutputs = [];
     let midiOutDevice = null, midiInDevice = null, midiChannel = null;
     let synth = null, useVirtual = true;
-    let lastClientCount = 0;
 
     function sendMessage(obj) {
       obj.pin = pin;
@@ -237,9 +236,6 @@
         midiChannel = pc.createDataChannel('midi', { ordered: true });
         midiChannel.onmessage = ({ data }) => handleMidiMessage(JSON.parse(data));
       }
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      sendMessage({ type: 'signal', offer: pc.localDescription });
     }
 
     function updateMicState() {
@@ -353,16 +349,39 @@
         } else if (cmd === 0x80 || (cmd === 0x90 && vel === 0)) {
           synth.triggerRelease(freq, Tone.now());
         }
-      }
     }
 
     function initConnection() {
       ws = new WebSocket('wss://dreamecho.onrender.com');
       pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
 
+      pc.onnegotiationneeded = async () => {
+        try {
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          sendMessage({ type: 'signal', offer: pc.localDescription });
+        } catch (e) {
+          console.error('Error renegociando:', e);
+        }
+      };
+
+      pc.onicecandidate = ({ candidate }) => {
+        if (candidate) sendMessage({ type: 'signal', candidate });
+      };
+
+      pc.ontrack = ev => {
+        remoteVideo.srcObject = ev.streams[0];
+      };
+
+      pc.ondatachannel = ev => {
+        if (ev.channel.label === 'midi') {
+          midiChannel = ev.channel;
+          midiChannel.onmessage = ({ data }) => handleMidiMessage(JSON.parse(data));
+        }
+      };
+
       ws.onopen = () => {
         estadoEl.innerText = 'Conectado. Iniciando WebRTC…';
-        sendMessage({ type: 'ping' });
         startWebRTC();
         setupMIDI();
         setupSampler();
@@ -372,12 +391,7 @@
         const msg = JSON.parse(typeof data === 'string' ? data : await data.text());
         switch (msg.type) {
           case 'stats':
-            const count = msg.clients;
-            oyentesEl.innerText = `Oyentes conectados: ${count}`;
-            if (lastClientCount < 2 && count >= 2) {
-              await startWebRTC();
-            }
-            lastClientCount = count;
+            oyentesEl.innerText = `Oyentes conectados: ${msg.clients}`;
             break;
           case 'talk':
             remoteSpeaking = msg.speaking;
@@ -387,9 +401,6 @@
             if (msg.pin !== pin) return;
             if (msg.offer) {
               await pc.setRemoteDescription(new RTCSessionDescription(msg.offer));
-              const answer = await pc.createAnswer();
-              await pc.setLocalDescription(answer);
-              sendMessage({ type: 'signal', answer: pc.localDescription });
             } else if (msg.answer) {
               await pc.setRemoteDescription(new RTCSessionDescription(msg.answer));
             } else if (msg.candidate) {
@@ -401,18 +412,6 @@
 
       ws.onerror = () => { estadoEl.innerText = 'Error en la conexión.'; };
       ws.onclose = () => { estadoEl.innerText = 'Conexión cerrada.'; };
-
-      pc.onicecandidate = ({ candidate }) => {
-        if (candidate) sendMessage({ type: 'signal', candidate });
-      };
-      pc.ontrack = ev => {
-        remoteVideo.srcObject = ev.streams[0];
-      };
-      pc.ondatachannel = ev => {
-        if (ev.channel.label === 'midi') {
-          ev.channel.onmessage = ({ data }) => handleMidiMessage(JSON.parse(data));
-        }
-      };
     }
   </script>
 </body>
