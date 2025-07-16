@@ -153,21 +153,21 @@
 
   <script>
     let pin = null;
-    const pinSection       = document.getElementById('pinSection');
-    const pinInput         = document.getElementById('pinInput');
-    const pinBtn           = document.getElementById('pinBtn');
-    const mainContent      = document.getElementById('mainContent');
-    const estadoEl         = document.getElementById('estado');
-    const oyentesEl        = document.getElementById('oyentes');
-    const localVideo       = document.getElementById('localVideo');
-    const remoteVideo      = document.getElementById('remoteVideo');
-    const talkBtn          = document.getElementById('talkBtn');
-    const virtualBtn       = document.getElementById('virtualBtn');
-    const midiOutSelectCont= document.getElementById('midiOutSelectCont');
-    const midiStatus       = document.getElementById('midiStatus');
-    const midiInSelectCont = document.getElementById('midiInSelectCont');
-    const midiSendStatus   = document.getElementById('midiSendStatus');
-    const keyboardEl       = document.getElementById('keyboard');
+    const pinSection        = document.getElementById('pinSection');
+    const pinInput          = document.getElementById('pinInput');
+    const pinBtn            = document.getElementById('pinBtn');
+    const mainContent       = document.getElementById('mainContent');
+    const estadoEl          = document.getElementById('estado');
+    const oyentesEl         = document.getElementById('oyentes');
+    const localVideo        = document.getElementById('localVideo');
+    const remoteVideo       = document.getElementById('remoteVideo');
+    const talkBtn           = document.getElementById('talkBtn');
+    const virtualBtn        = document.getElementById('virtualBtn');
+    const midiOutSelectCont = document.getElementById('midiOutSelectCont');
+    const midiStatus        = document.getElementById('midiStatus');
+    const midiInSelectCont  = document.getElementById('midiInSelectCont');
+    const midiSendStatus    = document.getElementById('midiSendStatus');
+    const keyboardEl        = document.getElementById('keyboard');
 
     let ws, pc, piano;
     let realAudioTrack, silentAudioTrack, audioSender;
@@ -224,29 +224,21 @@
       ws.send(JSON.stringify(obj));
     }
 
-    async function startWebRTC() {
+    // Inicializa PeerConnection sin crear oferta
+    async function initPeerConnection() {
       pc = new RTCPeerConnection({ iceServers:[{ urls:'stun:stun.l.google.com:19302' }] });
-      midiChannel = pc.createDataChannel('midi',{ ordered:true });
-      midiChannel.onmessage = ({ data }) => handleMidiMessage(JSON.parse(data));
-
-      await initLocalVideo();
-
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      sendMessage({ type:'signal', offer:pc.localDescription });
-
+      // Solo escuchamos canales entrantes (desde el profesor)
+      pc.ondatachannel = ev => {
+        midiChannel = ev.channel;
+        midiChannel.onmessage = ({ data }) => handleMidiMessage(JSON.parse(data));
+      };
       pc.onicecandidate = ({ candidate }) => {
         if (candidate) sendMessage({ type:'signal', candidate });
       };
       pc.ontrack = ev => {
         remoteVideo.srcObject = ev.streams[0];
       };
-      pc.ondatachannel = ev => {
-        if (ev.channel.label==='midi') {
-          midiChannel = ev.channel;
-          midiChannel.onmessage = ({ data }) => handleMidiMessage(JSON.parse(data));
-        }
-      };
+      await initLocalVideo();
     }
 
     async function setupMIDI() {
@@ -254,7 +246,7 @@
       midiInputs  = Array.from(midiAccess.inputs.values());
       midiOutputs = Array.from(midiAccess.outputs.values());
 
-      // SALIDAS MIDI
+      // SALIDAS MIDI (reproducir lo que llegue del profe)
       midiOutSelectCont.innerHTML = '';
       if (midiOutputs.length) {
         const sel = document.createElement('select');
@@ -272,7 +264,7 @@
         midiOutSelectCont.textContent = '(No hay salidas MIDI físicas conectadas)';
       }
 
-      // ENTRADAS MIDI
+      // ENTRADAS MIDI (enviar al profe)
       midiInSelectCont.innerHTML = '';
       if (midiInputs.length) {
         const selIn = document.createElement('select');
@@ -369,8 +361,8 @@
           case 'stats':
             oyentesEl.textContent = `Oyentes conectados: ${msg.clients}`;
             if (msg.clients >= 2 && !pc) {
-              estadoEl.textContent = 'Profesor conectado. Iniciando llamada…';
-              startWebRTC();
+              estadoEl.textContent = 'Profesor conectado. Configurando llamada…';
+              await initPeerConnection();
             }
             break;
           case 'talk':
@@ -380,6 +372,7 @@
           case 'signal':
             if (msg.pin !== pin) return;
             if (msg.offer) {
+              // Al recibir la oferta, contestamos
               await pc.setRemoteDescription(new RTCSessionDescription(msg.offer));
               const ans = await pc.createAnswer();
               await pc.setLocalDescription(ans);
