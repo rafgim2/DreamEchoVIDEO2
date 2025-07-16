@@ -222,6 +222,7 @@
     }
 
     async function startWebRTC() {
+      if (!pc) return;
       localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
       realAudioTrack = localStream.getAudioTracks()[0];
       silentAudioTrack = createSilentAudioTrack();
@@ -299,7 +300,9 @@
           midiInDevice = sel.value ? midiInputs[+sel.value] : null;
           if (midiInDevice) {
             midiInDevice.onmidimessage = ({ data }) => {
-              if (midiChannel && midiChannel.readyState === 'open') midiChannel.send(JSON.stringify({ data: Array.from(data) }));
+              if (midiChannel && midiChannel.readyState === 'open') {
+                midiChannel.send(JSON.stringify({ data: Array.from(data) }));
+              }
             };
             midiSendStatus.textContent = `Enviando MIDI desde: ${midiInDevice.name}`;
           } else {
@@ -373,8 +376,8 @@
             const count = msg.clients;
             oyentesEl.innerText = `Oyentes conectados: ${count}`;
             if (lastClientCount < 2 && count >= 2) {
-              console.log('Alumno conectado: recargando página…');
-              location.reload();
+              console.log('Alumno conectado: renegociando WebRTC…');
+              await startWebRTC();
             }
             lastClientCount = count;
             break;
