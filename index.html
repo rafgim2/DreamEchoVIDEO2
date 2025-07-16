@@ -129,9 +129,12 @@
 <body>
   <div class="container">
     <h1>DreamEcho - Alumno</h1>
-    <p class="byline"><a href="https://www.youtube.com/@rafgim" target="_blank" rel="noopener">© By Rafael Gimeno</a></p>
+    <p class="byline">
+      <a href="https://www.youtube.com/@rafgim" target="_blank" rel="noopener">© By Rafael Gimeno</a>
+    </p>
 
-    <div class="pin-section">
+    <!-- Sección de PIN con id para ocultar -->
+    <div id="pinSection" class="pin-section">
       <input type="text" id="pinInput" placeholder="Introduce el PIN de sala">
       <button id="pinBtn">Unirse</button>
     </div>
@@ -173,29 +176,32 @@
 
   <script>
     let pin = null;
-    const pinInput = document.getElementById('pinInput');
-    const pinBtn = document.getElementById('pinBtn');
-    const mainContent = document.getElementById('mainContent');
+    const pinSection   = document.getElementById('pinSection');
+    const pinInput     = document.getElementById('pinInput');
+    const pinBtn       = document.getElementById('pinBtn');
+    const mainContent  = document.getElementById('mainContent');
 
     pinBtn.onclick = () => {
-      if (!pinInput.value.trim()) return;
-      pin = pinInput.value.trim();
-      pinInput.disabled = true;
-      pinBtn.disabled = true;
+      const value = pinInput.value.trim();
+      if (!value) return;
+      pin = value;
+      // Ocultamos la sección de PIN
+      pinSection.style.display = 'none';
+      // Mostramos el contenido principal
       mainContent.style.display = 'block';
       initConnection();
     };
 
-    const estadoEl = document.getElementById('estado');
-    const oyentesEl = document.getElementById('oyentes');
-    const localVideo = document.getElementById('localVideo');
-    const remoteVideo = document.getElementById('remoteVideo');
-    const talkBtn = document.getElementById('talkBtn');
-    const virtualBtn = document.getElementById('virtualBtn');
+    const estadoEl        = document.getElementById('estado');
+    const oyentesEl       = document.getElementById('oyentes');
+    const localVideo      = document.getElementById('localVideo');
+    const remoteVideo     = document.getElementById('remoteVideo');
+    const talkBtn         = document.getElementById('talkBtn');
+    const virtualBtn      = document.getElementById('virtualBtn');
     const midiOutSelectCont = document.getElementById('midiOutSelectCont');
-    const midiStatus = document.getElementById('midiStatus');
+    const midiStatus      = document.getElementById('midiStatus');
     const midiInSelectCont = document.getElementById('midiInSelectCont');
-    const midiSendStatus = document.getElementById('midiSendStatus');
+    const midiSendStatus  = document.getElementById('midiSendStatus');
 
     let ws, pc;
     let localStream = null, realAudioTrack = null, silentAudioTrack = null, audioSender = null;
@@ -232,10 +238,9 @@
       if (audioSender && audioSender.track !== silentAudioTrack) {
         audioSender.replaceTrack(silentAudioTrack);
       }
-      if (!midiChannel || midiChannel.readyState === 'closed') {
-        midiChannel = pc.createDataChannel('midi', { ordered: true });
-        midiChannel.onmessage = ({ data }) => handleMidiMessage(JSON.parse(data));
-      }
+      midiChannel = pc.createDataChannel('midi', { ordered: true });
+      midiChannel.onmessage = ({ data }) => handleMidiMessage(JSON.parse(data));
+
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
       sendMessage({ type: 'signal', offer: pc.localDescription });
@@ -360,7 +365,7 @@
       pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
 
       ws.onopen = () => {
-        estadoEl.innerText = 'Conectado. Iniciando WebRTC…';
+        estadoEl.textContent = 'Conectado. Iniciando WebRTC…';
         sendMessage({ type: 'ping' });
         startWebRTC();
         setupMIDI();
@@ -370,7 +375,7 @@
         const msg = JSON.parse(typeof data === 'string' ? data : await data.text());
         switch (msg.type) {
           case 'stats':
-            oyentesEl.innerText = `Oyentes conectados: ${msg.clients}`;
+            oyentesEl.textContent = `Oyentes conectados: ${msg.clients}`;
             break;
           case 'talk':
             remoteSpeaking = msg.speaking;
@@ -391,8 +396,8 @@
             break;
         }
       };
-      ws.onerror = () => { estadoEl.innerText = 'Error en la conexión.'; };
-      ws.onclose = () => { estadoEl.innerText = 'Conexión cerrada.'; };
+      ws.onerror = () => { estadoEl.textContent = 'Error en la conexión.'; };
+      ws.onclose = () => { estadoEl.textContent = 'Conexión cerrada.'; };
 
       pc.onicecandidate = ({ candidate }) => {
         if (candidate) sendMessage({ type: 'signal', candidate });
@@ -402,7 +407,8 @@
       };
       pc.ondatachannel = ev => {
         if (ev.channel.label === 'midi') {
-          ev.channel.onmessage = ({ data }) => handleMidiMessage(JSON.parse(data));
+          midiChannel = ev.channel;
+          midiChannel.onmessage = ({ data }) => handleMidiMessage(JSON.parse(data));
         }
       };
     }
