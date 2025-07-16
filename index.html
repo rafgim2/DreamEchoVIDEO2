@@ -204,6 +204,7 @@
     let midiOutDevice = null, midiInDevice = null, midiChannel = null;
     let synth = null, useVirtual = true;
     let lastClientCount = 0;
+    let renegotiationRequested = false;
 
     function sendMessage(obj) {
       obj.pin = pin;
@@ -243,6 +244,23 @@
       sendMessage({ type: 'signal', offer: pc.localDescription });
     }
 
+    function requestRenegotiation() {
+      if (renegotiationRequested) return;
+      renegotiationRequested = true;
+      if (pc.signalingState === 'stable') {
+        console.log('Alumno conectado: renegociando inmediatamente…');
+        startWebRTC();
+      } else {
+        pc.addEventListener('signalingstatechange', function onChange() {
+          if (pc.signalingState === 'stable') {
+            pc.removeEventListener('signalingstatechange', onChange);
+            console.log('Profesor renegocia tras estado "stable"…');
+            startWebRTC();
+          }
+        });
+      }
+    }
+
     function updateMicState() {
       if (!audioSender) return;
       const active = pressingTalk && !remoteSpeaking;
@@ -255,14 +273,12 @@
       talkBtn.style.background = 'red';
       updateMicState();
     }
-
     function releaseTalk() {
       pressingTalk = false;
       sendMessage({ type: 'talk', speaking: false });
       talkBtn.style.background = '';
       updateMicState();
     }
-
     ['mousedown','touchstart'].forEach(e => talkBtn.addEventListener(e, pressTalk));
     ['mouseup','mouseleave','touchend','touchcancel'].forEach(e => talkBtn.addEventListener(e, releaseTalk));
 
@@ -277,8 +293,10 @@
         sel.innerHTML = '<option value="">-- Elige tu teclado digital --</option>';
         midiOutputs.forEach((o,i) => sel.innerHTML += `<option value="${i}">${o.name}</option>`);
         sel.onchange = () => {
-          midiOutDevice = sel.value? midiOutputs[+sel.value]: null;
-          midiStatus.textContent = midiOutDevice? `MIDI OUT: ${midiOutDevice.name}`:'Usando sonido virtual';
+          midiOutDevice = sel.value ? midiOutputs[+sel.value] : null;
+          midiStatus.textContent = midiOutDevice
+            ? `MIDI OUT: ${midiOutDevice.name}`
+            : 'Usando sonido virtual';
           useVirtual = !midiOutDevice;
         };
         midiOutSelectCont.appendChild(sel);
@@ -293,11 +311,12 @@
         midiInputs.forEach((i,k) => sel.innerHTML += `<option value="${k}">${i.name}</option>`);
         sel.onchange = () => {
           if (midiInDevice) midiInDevice.onmidimessage = null;
-          midiInDevice = sel.value? midiInputs[+sel.value]: null;
+          midiInDevice = sel.value ? midiInputs[+sel.value] : null;
           if (midiInDevice) {
             midiInDevice.onmidimessage = ({ data }) => {
-              if (midiChannel&& midiChannel.readyState==='open')
-                midiChannel.send(JSON.stringify({ data:Array.from(data) }));
+              if (midiChannel && midiChannel.readyState === 'open') {
+                midiChannel.send(JSON.stringify({ data: Array.from(data) }));
+              }
             };
             midiSendStatus.textContent = `Enviando MIDI desde: ${midiInDevice.name}`;
           } else {
@@ -320,13 +339,15 @@
       if (synth) return;
       await Tone.start();
       synth = new Tone.Sampler({
-        urls: { A0:'A0.mp3',C1:'C1.mp3','D#1':'Ds1.mp3','F#1':'Fs1.mp3',
-                A1:'A1.mp3',C2:'C2.mp3','D#2':'Ds2.mp3','F#2':'Fs2.mp3',
-                A2:'A2.mp3',C3:'C3.mp3','D#3':'Ds3.mp3','F#3':'Fs3.mp3',
-                A3:'A3.mp3',C4:'C4.mp3','D#4':'Ds4.mp3','F#4':'Fs4.mp3',
-                A4:'A4.mp3',C5:'C5.mp3','D#5':'Ds5.mp3','F#5':'Fs5.mp3',
-                A5:'A5.mp3',C6:'C6.mp3','D#6':'Ds6.mp3','F#6':'Fs6.mp3',
-                A7:'A7.mp3',C8:'C8.mp3' },
+        urls: {
+          A0:'A0.mp3', C1:'C1.mp3','D#1':'Ds1.mp3','F#1':'Fs1.mp3',
+          A1:'A1.mp3', C2:'C2.mp3','D#2':'Ds2.mp3','F#2':'Fs2.mp3',
+          A2:'A2.mp3', C3:'C3.mp3','D#3':'Ds3.mp3','F#3':'Fs3.mp3',
+          A3:'A3.mp3', C4:'C4.mp3','D#4':'Ds4.mp3','F#4':'Fs4.mp3',
+          A4:'A4.mp3', C5:'C5.mp3','D#5':'Ds5.mp3','F#5':'Fs5.mp3',
+          A5:'A5.mp3', C6:'C6.mp3','D#6':'Ds6.mp3','F#6':'Fs6.mp3',
+          A7:'A7.mp3', C8:'C8.mp3'
+        },
         baseUrl:'https://tonejs.github.io/audio/salamander/',
         release:0.4,
         onload:()=> midiStatus.textContent='Sonido virtual listo'
@@ -361,23 +382,20 @@
       };
 
       ws.onmessage = async ({ data }) => {
-        const msg = JSON.parse(typeof data==='string'?data:await data.text());
+        const msg = JSON.parse(typeof data==='string' ? data : await data.text());
         switch(msg.type) {
           case 'stats':
             const count = msg.clients;
             oyentesEl.innerText = `Oyentes conectados: ${count}`;
             if (lastClientCount < 2 && count >= 2) {
-              console.log('Alumno conectado: renegociando…');
-              await startWebRTC();
+              requestRenegotiation();
             }
             lastClientCount = count;
             break;
-
           case 'talk':
             remoteSpeaking = msg.speaking;
             updateMicState();
             break;
-
           case 'signal':
             if (msg.pin !== pin) return;
             if (msg.offer) {
@@ -404,7 +422,7 @@
         remoteVideo.srcObject = ev.streams[0];
       };
       pc.ondatachannel = ev => {
-        if (ev.channel.label==='midi') {
+        if (ev.channel.label === 'midi') {
           ev.channel.onmessage = ({ data }) => handleMidiMessage(JSON.parse(data));
         }
       };
