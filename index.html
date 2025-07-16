@@ -210,7 +210,10 @@
       ws.send(JSON.stringify(obj));
     }
 
-    function createSilentAudioTrack() {
+    async function ensureLocalStream() {
+      if (localStream) return;
+      localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      realAudioTrack = localStream.getAudioTracks()[0];
       const ctx = new (window.AudioContext || window.webkitAudioContext)();
       const osc = ctx.createOscillator();
       osc.frequency.value = 0;
@@ -218,26 +221,21 @@
       osc.connect(dst);
       osc.start();
       setTimeout(() => osc.stop(), 100);
-      return dst.stream.getAudioTracks()[0];
-    }
-
-    async function startWebRTC() {
-      localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-      realAudioTrack = localStream.getAudioTracks()[0];
-      silentAudioTrack = createSilentAudioTrack();
+      silentAudioTrack = dst.stream.getAudioTracks()[0];
       localVideo.srcObject = localStream;
       localStream.getTracks().forEach(track => {
         const sender = pc.addTrack(track, localStream);
         if (track.kind === 'audio') audioSender = sender;
       });
       audioSender.replaceTrack(silentAudioTrack);
+    }
 
-      // Si es la primera oferta o tras alumno conectado:
+    async function startWebRTC() {
+      await ensureLocalStream();
       if (!midiChannel || midiChannel.readyState === 'closed') {
         midiChannel = pc.createDataChannel('midi', { ordered: true });
         midiChannel.onmessage = ({ data }) => handleMidiMessage(JSON.parse(data));
       }
-
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
       sendMessage({ type: 'signal', offer: pc.localDescription });
@@ -275,12 +273,10 @@
       if (midiOutputs.length) {
         const sel = document.createElement('select');
         sel.innerHTML = '<option value="">-- Elige tu teclado digital --</option>';
-        midiOutputs.forEach((o, i) => sel.innerHTML += `<option value="${i}">${o.name}</option>`);
+        midiOutputs.forEach((o,i) => sel.innerHTML += `<option value="${i}">${o.name}</option>`);
         sel.onchange = () => {
           midiOutDevice = sel.value ? midiOutputs[+sel.value] : null;
-          midiStatus.textContent = midiOutDevice
-            ? `MIDI OUT: ${midiOutDevice.name}` 
-            : 'Usando sonido virtual';
+          midiStatus.textContent = midiOutDevice ? `MIDI OUT: ${midiOutDevice.name}` : 'Usando sonido virtual';
           useVirtual = !midiOutDevice;
         };
         midiOutSelectCont.appendChild(sel);
@@ -313,27 +309,20 @@
       }
     }
 
-    virtualBtn.onclick = async () => {
-      useVirtual = true;
-      midiStatus.textContent = 'Usando sonido virtual';
-      await setupSampler();
-    };
+    virtualBtn.onclick = async () => { useVirtual = true; midiStatus.textContent = 'Usando sonido virtual'; await setupSampler(); };
 
     async function setupSampler() {
       if (synth) return;
       await Tone.start();
       synth = new Tone.Sampler({
-        urls: {
-          A0:'A0.mp3', C1:'C1.mp3','D#1':'Ds1.mp3','F#1':'Fs1.mp3',
-          A1:'A1.mp3', C2:'C2.mp3','D#2':'Ds2.mp3','F#2':'Fs2.mp3',
-          A2:'A2.mp3', C3:'C3.mp3','D#3':'Ds3.mp3','F#3':'Fs3.mp3',
-          A3:'A3.mp3', C4:'C4.mp3','D#4':'Ds4.mp3','F#4':'Fs4.mp3',
-          A4:'A4.mp3', C5:'C5.mp3','D#5':'Ds5.mp3','F#5':'Fs5.mp3',
-          A5:'A5.mp3', C6:'C6.mp3','D#6':'Ds6.mp3','F#6':'Fs6.mp3',
-          A7:'A7.mp3', C8:'C8.mp3'
-        },
-        baseUrl:'https://tonejs.github.io/audio/salamander/',
-        release:0.4,
+        urls: { A0:'A0.mp3',C1:'C1.mp3','D#1':'Ds1.mp3','F#1':'Fs1.mp3',
+                A1:'A1.mp3',C2:'C2.mp3','D#2':'Ds2.mp3','F#2':'Fs2.mp3',
+                A2:'A2.mp3',C3:'C3.mp3','D#3':'Ds3.mp3','F#3':'Fs3.mp3',
+                A3:'A3.mp3',C4:'C4.mp3','D#4':'Ds4.mp3','F#4':'Fs4.mp3',
+                A4:'A4.mp3',C5:'C5.mp3','D#5':'Ds5.mp3','F#5':'Fs5.mp3',
+                A5:'A5.mp3',C6:'C6.mp3','D#6':'Ds6.mp3','F#6':'Fs6.mp3',
+                A7:'A7.mp3',C8:'C8.mp3' },
+        baseUrl:'https://tonejs.github.io/audio/salamander/', release:0.4,
         onload:()=> midiStatus.textContent='Sonido virtual listo'
       }).toDestination();
     }
@@ -345,10 +334,10 @@
         midiOutDevice.send(new Uint8Array(msg.data));
       } else if (synth) {
         const freq = Tone.Frequency(note,'midi').toFrequency();
-        if (cmd === 0x90 && vel > 0) {
-          synth.triggerAttack(freq, Tone.now(), Math.pow(vel/127,2));
-        } else if (cmd === 0x80 || (cmd===0x90 && vel===0)) {
-          synth.triggerRelease(freq, Tone.now());
+        if (cmd===0x90 && vel>0) {
+          synth.triggerAttack(freq,Tone.now(),Math.pow(vel/127,2));
+        } else {
+          synth.triggerRelease(freq,Tone.now());
         }
       }
     }
@@ -357,12 +346,25 @@
       ws = new WebSocket('wss://dreamecho.onrender.com');
       pc = new RTCPeerConnection({ iceServers:[{ urls:'stun:stun.l.google.com:19302' }] });
 
-      // cuando llegue respuesta o candidatos del alumno
+      ws.onopen = () => {
+        estadoEl.innerText = 'Conectado. Esperando alumno…';
+        sendMessage({ type:'ping' });
+        ensureLocalStream();
+        setupMIDI();
+        setupSampler();
+      };
+
       ws.onmessage = async ({ data }) => {
         const msg = JSON.parse(typeof data==='string'?data:await data.text());
         switch(msg.type) {
           case 'stats':
-            oyentesEl.innerText = `Oyentes conectados: ${msg.clients}`;
+            const count = msg.clients;
+            oyentesEl.innerText = `Oyentes conectados: ${count}`;
+            if (lastClientCount < 2 && count >= 2) {
+              console.log('Alumno conectado: iniciando negociación…');
+              await startWebRTC();
+            }
+            lastClientCount = count;
             break;
           case 'talk':
             remoteSpeaking = msg.speaking;
@@ -371,7 +373,10 @@
           case 'signal':
             if (msg.pin !== pin) return;
             if (msg.offer) {
-              // nunca debería llegar offer al profesor tras la inicial
+              await pc.setRemoteDescription(new RTCSessionDescription(msg.offer));
+              const answer = await pc.createAnswer();
+              await pc.setLocalDescription(answer);
+              sendMessage({ type:'signal', answer: pc.localDescription });
             } else if (msg.answer) {
               await pc.setRemoteDescription(new RTCSessionDescription(msg.answer));
             } else if (msg.candidate) {
@@ -381,24 +386,15 @@
         }
       };
 
-      ws.onopen = () => {
-        estadoEl.innerText = 'Conectado. Iniciando WebRTC…';
-        sendMessage({ type:'ping' });
-        setupMIDI();
-        setupSampler();
-        startWebRTC();
-      };
-      ws.onerror = () => estadoEl.innerText = 'Error en la conexión.';
-      ws.onclose = () => estadoEl.innerText = 'Conexión cerrada.';
+      ws.onerror = () => { estadoEl.innerText = 'Error en la conexión.'; };
+      ws.onclose = () => { estadoEl.innerText = 'Conexión cerrada.'; };
 
       pc.onicecandidate = ({ candidate }) => {
         if (candidate) sendMessage({ type:'signal', candidate });
       };
-      pc.ontrack = ev => {
-        remoteVideo.srcObject = ev.streams[0];
-      };
+      pc.ontrack = ev => { remoteVideo.srcObject = ev.streams[0]; };
       pc.ondatachannel = ev => {
-        if (ev.channel.label==='midi') {
+        if (ev.channel.label === 'midi') {
           ev.channel.onmessage = ({ data }) => handleMidiMessage(JSON.parse(data));
         }
       };
