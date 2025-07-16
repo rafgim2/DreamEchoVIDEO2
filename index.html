@@ -2,31 +2,40 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <title>DreamEcho - Profesor</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DreamEcho - Alumno</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.39/Tone.min.js"></script>
   <style>
-    body {
-      font-family: sans-serif;
-      padding: 1em;
-      text-align: center;
-      background-color: #c1f7f2;
+    html, body {
+      min-height: 100%;
       margin: 0;
-      min-height: 100vh;
-      overflow-x: hidden;
+      font-family: sans-serif;
+      background: #f5f5f5;
+    }
+    body {
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      text-align: center;
       overflow-y: auto;
+      padding: 1em 0;
     }
-    .marco {
-      width: 90%;
+    .container {
       max-width: 700px;
-      margin: 1em auto;
-      padding: 1em;
-      background: white;
-      border: 5px solid blue;
+      width: 95%;
+      padding: 2em;
+      background: #fff;
       border-radius: 1em;
-      box-sizing: border-box;
+      border: 3px solid orange;
+      box-shadow: 0 0 20px rgba(0,0,0,.1);
     }
-    h1 { font-size: 2.5em; margin: 0.2em 0; }
+    h1 {
+      font-size: 3em;
+      margin-bottom: .2em;
+    }
+    .byline a {
+      text-decoration: none;
+      color: inherit;
+    }
     .pin-section { margin-bottom: 1em; }
     .pin-section input {
       padding: .6em; font-size: 1em; width: 60%; margin-right: .5em;
@@ -34,15 +43,11 @@
     .pin-section button {
       padding: .6em 1em; font-size: 1em;
       cursor: pointer; border: none; border-radius: .7em;
-      background: #2196f3; color: #fff;
-    }
-    #mainContent { display: none; }
-    #recuentoOyentes, #status {
-      font-size: 1.1em; color: #555; margin: .5em 0;
+      background: #ff9800; color: #fff;
     }
     .video-container {
       display: flex; gap: 1em; justify-content: center;
-      flex-wrap: nowrap; margin: 1em 0;
+      flex-wrap: nowrap; margin-bottom: 1em;
     }
     .video-block {
       flex: 1 1 45%; display: flex;
@@ -50,26 +55,22 @@
     }
     .video-block video {
       width: 100%; max-height: 250px;
-      background: black; border-radius: .5em;
+      background: #000; border-radius: .5em;
     }
     .video-label {
-      margin-top: .3em; font-weight: bold; color: #333;
+      margin-top: 0.3em; font-weight: bold; color: #333;
     }
     #talkBtn {
-      padding: .8em 2em; font-size: 1.1em; margin: 1em 0; margin-top: -30px;
+      padding: .8em 2em; font-size: 1.1em; margin: 1em 0;
       border: none; border-radius: .7em;
-      background: #2196f3; color: white;
+      background: #ff9800; color: #fff;
       cursor: pointer; user-select: none;
     }
     #talkBtn:active {
       transform: scale(.96); background: red;
     }
-    .midi-section {
-      margin: 1.5em 0; text-align: center;
-    }
-    .midi-section h3 {
-      margin-bottom: .5em; font-size: 1.2em;
-    }
+    .midi-section { margin: 1.5em 0; text-align: center; }
+    .midi-section h3 { margin-bottom: .5em; font-size: 1.2em; }
     .midi-controls {
       display: flex; justify-content: center;
       align-items: center; gap: 1em; margin-bottom: .5em;
@@ -84,26 +85,28 @@
     #midiStatus, #midiSendStatus {
       margin-top: .5em; color: #555;
     }
-    /* contenedor del teclado SVG */
+    /* contenedor del teclado */
     #keyboard {
       width: 100%; max-width: 700px;
-      height: 150px; margin: 1.5em auto; margin-bottom: -10px;
+      height: 150px; margin: 1.5em auto;
     }
   </style>
 </head>
 <body>
-  <div class="marco">
-    <h1>DreamEcho - Profesor</h1>
-    <p><a href="https://www.youtube.com/@rafgim" target="_blank" rel="noopener">
-      © By Rafael Gimeno
-    </a></p>
+  <div class="container">
+    <h1>DreamEcho - Alumno</h1>
+    <p class="byline">
+      <a href="https://www.youtube.com/@rafgim" target="_blank" rel="noopener">
+        © By Rafael Gimeno
+      </a>
+    </p>
 
     <div id="pinSection" class="pin-section">
-      <input type="text" id="pinInput" placeholder="Introduce tu PIN de la sala">
-      <button id="pinBtn">Crear sala</button>
+      <input type="text" id="pinInput" placeholder="Introduce el PIN de sala">
+      <button id="pinBtn">Unirse</button>
     </div>
 
-    <div id="mainContent">
+    <div id="mainContent" style="display:none;">
       <div class="video-container">
         <div class="video-block">
           <video id="localVideo" autoplay muted playsinline></video>
@@ -111,17 +114,17 @@
         </div>
         <div class="video-block">
           <video id="remoteVideo" autoplay playsinline></video>
-          <p class="video-label">Alumno</p>
+          <p class="video-label">Profesor</p>
         </div>
       </div>
 
-      <!-- aquí va el teclado SVG -->
+      <!-- teclado SVG de 88 teclas -->
       <div id="keyboard"></div>
 
       <button id="talkBtn">📢 Mantén pulsado para hablar</button>
 
       <div class="midi-section">
-        <h3>MIDI recibido (del alumno):</h3>
+        <h3>MIDI recibido (del profesor):</h3>
         <div class="midi-controls">
           <span class="label">Seleccionar piano digital</span>
           <div id="midiOutSelectCont"></div>
@@ -136,12 +139,12 @@
         <div id="midiSendStatus"></div>
       </div>
 
-      <p id="recuentoOyentes">Oyentes conectados: --</p>
-      <p id="status">Esperando conexión…</p>
+      <p id="estado">Conectando...</p>
+      <p id="oyentes">Oyentes conectados: --</p>
     </div>
   </div>
 
-  <!-- 1) importamos PianoKeys desde Skypack -->
+  <!-- 1) Importar PianoKeys desde Skypack -->
   <script type="module">
     import PianoKeys from 'https://cdn.skypack.dev/@jesperdj/pianokeys@1.0.6';
     window.PianoKeys = PianoKeys;
@@ -153,8 +156,8 @@
     const pinInput        = document.getElementById('pinInput');
     const pinBtn          = document.getElementById('pinBtn');
     const mainContent     = document.getElementById('mainContent');
-    const statusEl        = document.getElementById('status');
-    const oyentesEl       = document.getElementById('recuentoOyentes');
+    const estadoEl        = document.getElementById('estado');
+    const oyentesEl       = document.getElementById('oyentes');
     const localVideo      = document.getElementById('localVideo');
     const remoteVideo     = document.getElementById('remoteVideo');
     const talkBtn         = document.getElementById('talkBtn');
@@ -184,22 +187,20 @@
 
     async function initLocalVideo() {
       const stream = await navigator.mediaDevices.getUserMedia({ video:true, audio:true });
-      realAudioTrack   = stream.getAudioTracks()[0];
+      realAudioTrack = stream.getAudioTracks()[0];
       silentAudioTrack = createSilentAudioTrack();
       localVideo.srcObject = stream;
-      stream.getTracks().forEach(track => {
-        const sender = pc.addTrack(track, stream);
-        if (track.kind === 'audio') audioSender = sender;
+      stream.getTracks().forEach(t => {
+        const sender = pc.addTrack(t, stream);
+        if (t.kind==='audio') audioSender = sender;
       });
       if (audioSender) audioSender.replaceTrack(silentAudioTrack);
     }
 
     function updateMicState() {
       if (!audioSender) return;
-      const track = (pressingTalk && !remoteSpeaking)
-        ? realAudioTrack : silentAudioTrack;
-      if (audioSender.track !== track)
-        audioSender.replaceTrack(track);
+      const track = (pressingTalk && !remoteSpeaking) ? realAudioTrack : silentAudioTrack;
+      if (audioSender.track !== track) audioSender.replaceTrack(track);
     }
 
     function pressTalk() {
@@ -215,8 +216,7 @@
       updateMicState();
     }
     ['mousedown','touchstart'].forEach(e=>talkBtn.addEventListener(e,pressTalk));
-    ['mouseup','mouseleave','touchend','touchcancel']
-      .forEach(e=>talkBtn.addEventListener(e,releaseTalk));
+    ['mouseup','mouseleave','touchend','touchcancel'].forEach(e=>talkBtn.addEventListener(e,releaseTalk));
 
     function sendMessage(obj) {
       obj.pin = pin;
@@ -224,13 +224,9 @@
     }
 
     async function startWebRTC() {
-      pc = new RTCPeerConnection({
-        iceServers:[{ urls:'stun:stun.l.google.com:19302' }]
-      });
-      // canal de datos MIDI
+      pc = new RTCPeerConnection({ iceServers:[{ urls:'stun:stun.l.google.com:19302' }] });
       midiChannel = pc.createDataChannel('midi',{ ordered:true });
-      midiChannel.onmessage = ({ data }) =>
-        handleMidiMessage(JSON.parse(data));
+      midiChannel.onmessage = ({ data }) => handleMidiMessage(JSON.parse(data));
 
       await initLocalVideo();
 
@@ -238,82 +234,67 @@
       await pc.setLocalDescription(offer);
       sendMessage({ type:'signal', offer:pc.localDescription });
 
-      pc.onicecandidate = ({ candidate }) =>{
-        if (candidate) sendMessage({ type:'signal', candidate });
-      };
-      pc.ontrack = ev => {
-        remoteVideo.srcObject = ev.streams[0];
-      };
+      pc.onicecandidate = ({ candidate }) => { if(candidate) sendMessage({ type:'signal', candidate }); };
+      pc.ontrack = ev => { remoteVideo.srcObject = ev.streams[0]; };
       pc.ondatachannel = ev => {
-        if (ev.channel.label==='midi') {
+        if(ev.channel.label==='midi') {
           midiChannel = ev.channel;
-          midiChannel.onmessage = ({ data }) =>
-            handleMidiMessage(JSON.parse(data));
+          midiChannel.onmessage = ({ data }) => handleMidiMessage(JSON.parse(data));
         }
       };
     }
 
     async function setupMIDI() {
-      midiAccess  = await navigator.requestMIDIAccess();
+      midiAccess = await navigator.requestMIDIAccess();
       midiInputs  = Array.from(midiAccess.inputs.values());
       midiOutputs = Array.from(midiAccess.outputs.values());
 
-      // SALIDAS MIDI (enviar al alumno)
+      // SALIDAS MIDI
       midiOutSelectCont.innerHTML = '';
-      if (midiOutputs.length) {
+      if(midiOutputs.length){
         const sel = document.createElement('select');
         sel.innerHTML = '<option value="">-- Elige tu teclado digital --</option>';
-        midiOutputs.forEach((o,i)=>
-          sel.innerHTML += <option value="${i}">${o.name}</option>);
+        midiOutputs.forEach((o,i)=> sel.innerHTML+= `<option value="${i}">${o.name}</option>`);
         sel.onchange = ()=>{
-          midiOutDevice = sel.value
-            ? midiOutputs[+sel.value] : null;
+          midiOutDevice = sel.value ? midiOutputs[+sel.value] : null;
           midiStatus.textContent = midiOutDevice
-            ? MIDI OUT: ${midiOutDevice.name}
+            ? `MIDI OUT: ${midiOutDevice.name}`
             : 'Usando sonido virtual';
           useVirtual = !midiOutDevice;
         };
         midiOutSelectCont.appendChild(sel);
       } else {
-        midiOutSelectCont.textContent =
-          '(No hay salidas MIDI físicas conectadas)';
+        midiOutSelectCont.textContent = '(No hay salidas MIDI físicas conectadas)';
       }
 
-      // ENTRADAS MIDI (del alumno al profesor)
+      // ENTRADAS MIDI
       midiInSelectCont.innerHTML = '';
-      if (midiInputs.length) {
+      if(midiInputs.length){
         const selIn = document.createElement('select');
         selIn.innerHTML = '<option value="">-- Elige entrada MIDI --</option>';
-        midiInputs.forEach((i,k)=>
-          selIn.innerHTML += <option value="${k}">${i.name}</option>);
+        midiInputs.forEach((i,k)=> selIn.innerHTML+= `<option value="${k}">${i.name}</option>`);
         selIn.onchange = ()=>{
-          if (midiInDevice) midiInDevice.onmidimessage = null;
-          midiInDevice = selIn.value
-            ? midiInputs[+selIn.value] : null;
-          if (midiInDevice) {
+          if(midiInDevice) midiInDevice.onmidimessage=null;
+          midiInDevice = selIn.value ? midiInputs[+selIn.value] : null;
+          if(midiInDevice){
             midiInDevice.onmidimessage = ({ data })=>{
-              if (midiChannel &&
-                  midiChannel.readyState==='open') {
-                midiChannel.send(JSON.stringify({
-                  data: Array.from(data)
-                }));
+              if(midiChannel && midiChannel.readyState==='open'){
+                midiChannel.send(JSON.stringify({ data:Array.from(data) }));
               }
             };
-            midiSendStatus.textContent =
-              Enviando MIDI desde: ${midiInDevice.name};
+            midiSendStatus.textContent = `Enviando MIDI desde: ${midiInDevice.name}`;
           } else {
             midiSendStatus.textContent = '';
           }
         };
         midiInSelectCont.appendChild(selIn);
       } else {
-        midiInSelectCont.textContent =
-          '(No hay entradas MIDI físicas conectadas)';
+        midiInSelectCont.textContent = '(No hay entradas MIDI físicas conectadas)';
       }
     }
 
     async function setupSampler() {
-      if (synth) return;
+      if(synth) return;
       await Tone.start();
       synth = new Tone.Sampler({
         urls: {
@@ -332,32 +313,32 @@
     }
 
     function handleMidiMessage(msg) {
-      const [st,note,vel] = msg.data;
+      const [st, note, vel] = msg.data;
       const cmd = st & 0xf0;
-      const noteName = Tone.Frequency(note,'midi').toNote();
+      const noteName = Tone.Frequency(note, 'midi').toNote();
 
-      // iluminar/apagar tecla SVG del alumno
-      if (cmd === 0x90 && vel>0) {
+      // iluminar o apagar tecla SVG
+      if (cmd === 0x90 && vel > 0) {
         piano.fillKey(noteName);
-      } else if (cmd===0x80|| (cmd===0x90&&vel===0)) {
+      } else if (cmd === 0x80 || (cmd === 0x90 && vel === 0)) {
         piano.clearKey(noteName);
       }
 
-      // reproducir sonido local
+      // reproducir sonido
       if (!useVirtual && midiOutDevice) {
         midiOutDevice.send(new Uint8Array(msg.data));
       } else {
         if (!synth) return;
-        const freq = Tone.Frequency(note,'midi').toFrequency();
-        if (cmd===0x90 && vel>0) {
-          synth.triggerAttack(freq,Tone.now(),Math.pow(vel/127,2));
+        const freq = Tone.Frequency(note, 'midi').toFrequency();
+        if (cmd === 0x90 && vel > 0) {
+          synth.triggerAttack(freq, Tone.now(), Math.pow(vel/127,2));
         } else {
-          synth.triggerRelease(freq,Tone.now());
+          synth.triggerRelease(freq, Tone.now());
         }
       }
     }
 
-    pinBtn.onclick = ()=>{
+    pinBtn.onclick = () => {
       const v = pinInput.value.trim();
       if (!v) return;
       pin = v;
@@ -365,7 +346,7 @@
       mainContent.style.display = 'block';
 
       // inicializar piano SVG de 88 teclas
-      piano = new PianoKeys.Keyboard(keyboardEl,{
+      piano = new PianoKeys.Keyboard(keyboardEl, {
         width:  keyboardEl.clientWidth,
         height: keyboardEl.clientHeight,
         keyColour: '#fff',
@@ -373,51 +354,43 @@
         activeColour: '#4a4'
       });
 
-      // iniciar WebSocket/WebRTC
+      // websocket + webrtc + midi
+      estadoEl.textContent = 'Conectando…';
       ws = new WebSocket('wss://dreamecho.onrender.com');
-      ws.onopen = ()=>{
-        statusEl.textContent='Conectado, esperando oferta…';
-        sendMessage({type:'ping'});
+      ws.onopen = () => {
+        estadoEl.textContent = 'Conectado. Iniciando WebRTC…';
+        sendMessage({ type:'ping' });
+        startWebRTC();
         setupMIDI();
         setupSampler();
-        startWebRTC();
       };
-      ws.onmessage = async ({data})=>{
-        const msg = JSON.parse(
-          typeof data==='string'?data:await data.text()
-        );
-        switch(msg.type){
+      ws.onmessage = async ({ data }) => {
+        const msg = JSON.parse(typeof data==='string'?data:await data.text());
+        switch(msg.type) {
           case 'stats':
-            oyentesEl.textContent=
-              Oyentes conectados: ${msg.clients};
+            oyentesEl.textContent = `Oyentes conectados: ${msg.clients}`;
             break;
           case 'talk':
             remoteSpeaking = msg.speaking;
             updateMicState();
             break;
           case 'signal':
-            if(msg.pin!==pin) return;
-            if(msg.offer){
-              await pc.setRemoteDescription(
-                new RTCSessionDescription(msg.offer)
-              );
+            if (msg.pin!==pin) return;
+            if (msg.offer) {
+              await pc.setRemoteDescription(new RTCSessionDescription(msg.offer));
               const ans = await pc.createAnswer();
               await pc.setLocalDescription(ans);
-              sendMessage({type:'signal',answer:pc.localDescription});
-            } else if(msg.answer){
-              await pc.setRemoteDescription(
-                new RTCSessionDescription(msg.answer)
-              );
-            } else if(msg.candidate){
-              await pc.addIceCandidate(
-                new RTCIceCandidate(msg.candidate)
-              );
+              sendMessage({ type:'signal', answer:pc.localDescription });
+            } else if (msg.answer) {
+              await pc.setRemoteDescription(new RTCSessionDescription(msg.answer));
+            } else if (msg.candidate) {
+              await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
             }
             break;
         }
       };
-      ws.onerror = ()=>{ statusEl.textContent='Error en la conexión.'; };
-      ws.onclose = ()=>{ statusEl.textContent='Conexión cerrada.'; };
+      ws.onerror = ()=>{ estadoEl.textContent='Error en la conexión.'; };
+      ws.onclose = ()=>{ estadoEl.textContent='Conexión cerrada.'; };
     };
   </script>
 </body>
