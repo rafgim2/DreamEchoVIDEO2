@@ -28,14 +28,8 @@
       border: 3px solid orange;
       box-shadow: 0 0 20px rgba(0,0,0,.1);
     }
-    h1 {
-      font-size: 3em;
-      margin-bottom: .2em;
-    }
-    .byline a {
-      text-decoration: none;
-      color: inherit;
-    }
+    h1 { font-size: 3em; margin-bottom: .2em; }
+    .byline a { text-decoration: none; color: inherit; }
     .pin-section {
       margin-bottom: 1.5em;
     }
@@ -175,35 +169,25 @@
   </div>
   <script>
     let pin = null;
-    let ws = null;
-    let pc = null;
-    let localStream = null;
-    let realAudioTrack = null;
-    let silentAudioTrack = null;
-    let audioSender = null;
-    let pressingTalk = false;
-    let remoteSpeaking = false;
-    let midiAccess = null;
-    let midiInputs = [];
-    let midiOutputs = [];
-    let midiOutDevice = null;
-    let midiInDevice = null;
-    let midiChannel = null;
-    let synth = null;
-    let useVirtual = true;
+    let ws = null, pc = null;
+    let localStream = null, realAudioTrack = null, silentAudioTrack = null, audioSender = null;
+    let pressingTalk = false, remoteSpeaking = false;
+    let midiAccess = null, midiInputs = [], midiOutputs = [];
+    let midiOutDevice = null, midiInDevice = null, midiChannel = null;
+    let synth = null, useVirtual = true;
 
     const createRoomBtn = document.getElementById('createRoomBtn');
-    const pinInput       = document.getElementById('pinInput');
-    const appContent     = document.getElementById('appContent');
-    const estadoEl       = document.getElementById('estado');
-    const oyentesEl      = document.getElementById('oyentes');
-    const localVideo     = document.getElementById('localVideo');
-    const remoteVideo    = document.getElementById('remoteVideo');
-    const talkBtn        = document.getElementById('talkBtn');
-    const virtualBtn     = document.getElementById('virtualBtn');
+    const pinInput = document.getElementById('pinInput');
+    const appContent = document.getElementById('appContent');
+    const estadoEl = document.getElementById('estado');
+    const oyentesEl = document.getElementById('oyentes');
+    const localVideo = document.getElementById('localVideo');
+    const remoteVideo = document.getElementById('remoteVideo');
+    const talkBtn = document.getElementById('talkBtn');
+    const virtualBtn = document.getElementById('virtualBtn');
     const midiOutSelectCont = document.getElementById('midiOutSelectCont');
-    const midiStatus     = document.getElementById('midiStatus');
-    const midiInSelectCont  = document.getElementById('midiInSelectCont');
+    const midiStatus = document.getElementById('midiStatus');
+    const midiInSelectCont = document.getElementById('midiInSelectCont');
     const midiSendStatus = document.getElementById('midiSendStatus');
 
     createRoomBtn.onclick = () => {
@@ -220,7 +204,8 @@
     };
 
     function initConnection() {
-      ws = new WebSocket('wss://dreamecho.onrender.com');
+      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      ws = new WebSocket(`${protocol}//${location.host}`);
       pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
 
       ws.onopen = () => {
@@ -230,7 +215,6 @@
         setupMIDI();
         setupSampler();
       };
-
       ws.onmessage = async ({ data }) => {
         const msg = JSON.parse(typeof data === 'string' ? data : await data.text());
         switch (msg.type) {
@@ -255,7 +239,6 @@
             break;
         }
       };
-
       ws.onerror = () => { estadoEl.innerText = 'Error en la conexión.'; };
       ws.onclose = () => { estadoEl.innerText = 'Conexión cerrada.'; };
 
@@ -355,6 +338,7 @@
       } else {
         midiOutSelectCont.textContent = '(No hay salidas MIDI físicas conectadas)';
       }
+
       midiInSelectCont.innerHTML = '';
       if (midiInputs.length) {
         const sel = document.createElement('select');
